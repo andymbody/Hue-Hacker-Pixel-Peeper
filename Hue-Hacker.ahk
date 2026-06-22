@@ -8,7 +8,7 @@
 #Requires AutoHotkey v2.0
 #SingleInstance Force
 CoordMode('Mouse', 'Screen'), CoordMode('Pixel', 'Screen')
-appVersion := '26-06-22.133'
+appVersion := '26-06-22.145'
 gInitialized := 0																			; disable hotkeys
 showSplash(StrReplace(appVersion,'-'))														; show animated splash screen
 iniSettings()
@@ -76,7 +76,7 @@ hideGUI() {																					; hide gui, disable updates
 toggleActive() {																			; toggles whether tool is activate or not
 	global gIsToolActive
 	if (gIsToolActive ^= 1)
-		showGui()
+		showGui(), updateGrid(1)															; show, and force update
 	else
 		hideGui()
 }
