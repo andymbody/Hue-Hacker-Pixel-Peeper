@@ -1,125 +1,504 @@
 ﻿/*
 	App:	Hue-Hacker Pixel-Peeper
 	Author:	andymbody
-	Date:	2026-06-22
+	Date:	2026-06-26
 	GitHub:	https://github.com/andymbody/Hue-Hacker-Pixel-Peeper
 	Forum:	https://www.autohotkey.com/boards/viewtopic.php?f=83&t=140824
 */
 #Requires AutoHotkey v2.0
 #SingleInstance Force
 CoordMode('Mouse', 'Screen'), CoordMode('Pixel', 'Screen')
-appVersion := '26-06-22.230'
-gInitialized := 0																			; disable hotkeys
-showSplash(StrReplace(appVersion,'-'))														; show animated splash screen
-iniSettings()																				; get/set initial app settings
-iniGridGui()																				; initialize grid gui
-Sleep(250)																					; little delay between splash screen and list
-(gShowHKs) && showHKList()																	; show shortcuts list (if enabled)
-gInitialized := 1																			; enable hotkeys
+gAppVers := '26-06-26.133'
+AppIni()																						; initialize application
 ;################################################################################
-iniSettings() {
+AppClose() {
+	cfg.Disable(), gGui.GdiCleanup(), ExitApp()
+}
+;################################################################################
+AppIni() {
 	global
-	gDefPxCnt		:= 200								; screen pixels						; default pixel  count for grid single row/col
-	gDefSqCnt		:= 39								; grid squares						; default square count for grid single row/col
-	gRCSqMin		:= 3, gRCSqMax := 43				; grid squares						; min/max square count for grid single row/col
-	gINIFile		:= A_ScriptDir '\HueHacker.ini'											; local ini file (duh!)
-	gRCSqCnt		:= IniRead(gINIFile, 'Settings', 'RCSqCount',	gDefSqCnt	)			; GRID  square count for grid single row/col
-	gRCPxCnt		:= IniRead(gINIFile, 'Settings', 'RCPxCount',	gDefPxCnt	)			; SCREEN pixel count for grid single row/col
-	gShowHKs		:= IniRead(gINIFile, 'Settings', 'ShowHKs',		1			)			; whether to show HK list at startup
-	gHKListX		:= IniRead(gINIFile, 'Settings', 'HKListX',		''			)			; X position for HK list
-	gHKListY		:= IniRead(gINIFile, 'Settings', 'HKListY',		''			)			; Y position for HK list
-	gReloaded		:= IniRead(gINIFile, 'Settings', 'Reloaded',	0			)			; flag for reloading
-	gOffsetX		:= 75, gOffsetY := 75													; pixel distance between mouse and gui
-	getScale()		, getLgclTextH(), getRCPxScl()											; set scale, text control height, scaled pixel count
-	gWidth			:= gRCPxCnt, gHeight := gRCPxCnt + gLgclTextH							; set gui width and height
-	gIsToolActive	:= 0																	; sets whether gui tool is displayed/active or not
+	gInitialized := 0																			; disable hotkeys
+		getScale()																				; grab dpi scaling from system
+		cfg := clsSettings()																	; grab setting from ini file
+		TraySetIcon('HueHacker.ico')															; set tray icon
+		(!cfg.Grab('Reloaded')) && guiSplashShow()												; show animated splash screen (unless reloading)
+		DllCall('SetThreadDpiAwarenessContext', 'ptr', -4, 'ptr')								; needs to be before Gui ini
+		gGui := clsGrid('+AlwaysOnTop -Caption +ToolWindow +E0x20')								; initialize grid gui using custom Gui class
+		if (cfg.Grab('Reloaded'))																; if script is being reloaded...
+			cfg.Save('Reloaded',0), gGui.ShowGui()												; ... reset reload flag and show grid gui
+		(cfg.Grab('ShowHKs')) && guiHKListShow()												; show shortcuts list (if enabled)
+	gInitialized := 1																			; enable hotkeys
 }
 ;################################################################################
-getScale() {																				; compensates for screen scaling
-	hDC := DllCall('GetDC', 'Ptr', 0, 'Ptr')
-	dpi := DllCall('GetDeviceCaps', 'Ptr', hDC, 'Int', 88, 'Int')
-	DllCall('ReleaseDC', 'Ptr', 0, 'Ptr')
-	global gScale := dpi / 96
-	return gScale
-}
-;################################################################################
-scaled(value) {																				; applies scaling to passed setting
-	return value * getScale()
-}
-;################################################################################
-getLgclTextH() {																			; sets/returns default text control height (pixels)
-	global gLgclTextH := 48
-	return gLgclTextH
-}
-;################################################################################
-getRCPxScl() {																				; SCREEN pixel count for grid row/col (scaled)
-	global gRCPxScl := Round(gRCPxCnt * gScale)
-	return gRCPxScl
-}
-;################################################################################
-preventBkgdErase(wParam, lParam, msg, hwnd) {												; prevent background erase (ugly flash)
-	if (hwnd = gGui.Hwnd)
-		return 1																			; ... BUT ONLY return a value for main Gui!
-	; return NOTHING, not even 0!															; ... otherwise it also affects child windows and ctrls
-}
-;################################################################################
-showGui() {																					; show gui, enable timer for updates
-	global gIsToolActive := 1
-	MouseGetPos(&mX, &mY), gX := mX + gOffsetX, gY := mY + gOffsetY
-	updateGrid(1)
-	gGui.Show(Format('hide x{} y{} w{} h{}', gX, gY, gWidth, gHeight))
-	winAnimateFade(gGui, 1, 1000)
-	gGui.Show() ;Format('x{} y{} w{} h{}', gX, gY, gWidth, gHeight))
-	SetTimer(updateGrid, 50)
-}
-;################################################################################
-hideGUI() {																					; hide gui, disable updates
-	global gIsToolActive := 0
-	SetTimer(updateGrid, 0)
-	winAnimateFade(gGui, 2, 750)
-	gGui.Hide()
-}
-;################################################################################
-toggleActive() {																			; toggles whether tool is activate or not
-	global gIsToolActive
-	if (gIsToolActive ^= 1)
-		showGui(), updateGrid(1)															; show, and force update
-	else
-		hideGui()
-}
-;################################################################################
-iniGridGui() {																				; initialize gui (once)
-	global
-	DllCall('SetThreadDpiAwarenessContext', 'ptr', -4, 'ptr')								; needs to be before Gui ini
-	gGui		:= Gui('+AlwaysOnTop -Caption +ToolWindow +E0x20')							; gui options
-	fontSize	:= (gScale = 1) ? 's7' : 's8'												; ensure text is limited to 3 lines
-	gGui.SetFont(fontSize ' cWhite W600', 'Segoe UI')
-	txtOpts		:= 'Background000000 +border center +multi '								; options for text control
-	gBdrGap		:= 1																		; to control frame drawing
-	txtValues	:= gGui.Add('Text', Format(txtOpts 'x{} y{} w{} h{}'						; text control to display color details
-				, gBdrGap, gRCPxCnt, gWidth-gBdrGap*2, gLgclTextH-gBdrGap))
-	iniGrid()																				; grid canvas, for drawing
-	OnMessage(0x02E0, WM_DPICHANGED)														; gui detects dpi scaling changes (must follow Gui ini)
-	OnMessage(0x0014, preventBkgdErase)														; prevent ugly flash when resizing gui
-	TraySetIcon('HueHacker.ico')
-}
-;################################################################################
-iniGrid() {
-	global
-	ghGuiDC	 := DllCall('GetDC', 'Ptr', gGui.Hwnd, 'Ptr')									; device context for Gui (grid)
-	ghMGuiDC := DllCall('CreateCompatibleDC', 'Ptr', ghGuiDC, 'Ptr')						; device context for scratchpad
-	ghMemBM	 := DllCall('CreateCompatibleBitmap', 'Ptr', ghGuiDC							; canvas associated with gui window
-				, 'Int', gRCPxScl, 'Int', gRCPxScl, 'Ptr')
-	ghOldBM	 := DllCall('SelectObject', 'Ptr', ghMGuiDC, 'Ptr', ghMemBM, 'Ptr')				; scratchpad canvas
-}
-;################################################################################
-showHKList(useGui:=1) {
-	if (gReloaded) {																		; if script is being reloaded...
-		IniWrite(0, gINIFile, 'Settings', 'Reloaded')										; ... reset flag
-		showGui()																			; show tool, not HK list
-		return
+; clsSettings - management for custom user settings and .ini operations
+; provides much better performance than using standard ahk IniRead/Write
+class clsSettings
+{
+	_svd			:= ObjBindMethod(this, '_saveToDisk')										; required to use method with SetTimer
+	_cache			:= Map()																	; settings Map
+	_toDisk			:= 0																		; flag to signal that changes have not been saved to disk yet
+	_iniFile		:= A_ScriptDir '\HueHacker.ini'												; ini file to write to
+	;_iniFile		:= 'E:' '\HueHacker.ini'			; thumb-drive for testing				; ini file to write to
+	SaveToDisk()	=> this._saveToDisk()														; allow app to force "write-to-disk"
+	Disable()		=> this.Enable(0)															; convenience
+	;############################################################################
+	__New() {																					; allows auto ini of settings for Static class
+		this._getINI(), this.Enable()															; perform these automatically, rather than using multiple static calls
 	}
-	keyList := [
+	;############################################################################
+	Enable(dur := 5000) {							; can be called publicly					; enable/disable write-to-disk
+		static durMin := 5000																	; min should not be less that 5 secs
+		dur := (dur) ? dur : 0																	; enable or disable ?
+		dur := (dur && abs(dur) < durMin) ? durMin : dur										; make sure dur is not less than 5 secs
+		SetTimer(this._svd, dur)																; enable/disable timer
+		(!dur && this._toDisk) && this._saveToDisk()											; force write to disk if disabled, and settings have not been saved
+	}
+	;############################################################################
+	; add adjustable user settings here as needed
+	_getDefVals() {																				; hard coded default values
+		this._cache['SkinClr'] := '202020'														; gui skin bkgd color
+		this._cache['Reloaded'] := '0'															; flag for reloading
+		this._cache['ShowHKs' ] := '1'															; whether to show HK list at startup
+		this._cache['HKListX' ] := ''															; custom X position for HK list
+		this._cache['HKListY' ] := ''															; custom Y position for HK list
+		this._cache['RCSqCnt' ] := ''															; GRID  square count for grid single row/col (zoom factor)
+		this._cache['RCPxCnt' ] := ''															; SCREEN pixel count for grid single row/col (win size)
+	}
+	;############################################################################
+	_getINI() {																					; get initial INI settings, from file if possible
+		ws := ' `t`r`n'																			; trim options
+		this._cache := Map(), this._cache.CaseSense := 0										; initialize map as case-insensitive
+		this._getDefVals()																		; get default values
+		if (!FileExist(this._iniFile) && FileExist(this._iniFile '.tmp'))						; if a temp file is found instead of the .ini file...
+			FileMove(this._iniFile '.tmp', this._iniFile)										; ... recover from a failed swap
+		if (!FileExist(this._iniFile))															; if ini file does not exist...
+			return																				; ... default values will be used
+		contents := FileRead(this._iniFile)														; read contents of ini file
+		for ik, line in StrSplit(contents,'`n','`r') {											; get each line of file
+			ss := StrSplit(line,'=',,2)															; get each setting and value
+			if (ss.Length > 1)																	; [this check may not be needed]
+				this._cache[Trim(ss[1],ws)] := Trim(ss[2],ws)									; add setting/val to map, trim first
+		}
+	}
+	;############################################################################
+	Grab(key) {															; Public				; returns value for setting, if available
+		if (this._cache.Has(key))																; if key is found...
+			return this._cache[key]																; ... return its value
+		return ''																				; otherwise use empty string as return val
+	}
+	;############################################################################
+	Save(key,val) {														; Public				; saves setting to map, flags need to write to disk
+		prevVal := ''																			; val to return if key has no previous value
+		if (this._cache.Has(key))																; if key is found...
+			prevVal := this._cache[key]															; ... record previous value
+		if (prevVal != val)																		; if new value does not match prev value...
+			this._cache[key] := val, this._toDisk := 1											; update new value, flag for "write-to-disk"
+		return prevVal																			; return previous value to caller
+	}
+	;############################################################################
+	_saveAtomic(srcStr) {																		; minimized corruptions during crashes
+		tempFile := this._iniFile '.tmp'														; temp file path (add temp extension)
+		try FileDelete(tempFile)								; just in case					; delete temp file if it exists (it should not)
+		try {
+			FileAppend(srcStr,tempFile,'UTF-8')													; write data to temp file
+			FileMove(tempFile,this._iniFile,1)					; force overwrite				; rename temp file as .ini file
+		}
+	}
+	;############################################################################
+	_saveToDisk() {																				; saves all settings to disk, if any have changed
+		if (!this._toDisk)																		; if no settings have changed...
+			return																				; ... no need to save to disk
+		this._toDisk := 0																		; reset flag first to prevent double-dipping
+		saveStr		 := ''																		; ini output str
+		for key, val in this._cache																; for each setting in map...
+			saveStr .= key '=' val '`r`n'														; ... add key/val to output str
+		this._saveAtomic(saveStr)																; save data using reliable atomic method
+	}
+}
+;################################################################################
+; clsGrid - Main Tool Gui
+;################################################################################
+class clsGrid extends Gui
+{
+	OffsetX		:= 75, OffsetY := 75															; pixel distance between mouse and gui
+	TxtCtrlH	:= 48																			; initial height of text display control
+	DefPxCnt	:= 200								; screen pixels								; default PIXEL  count for grid single row/col
+	DefSqCnt	:= 39								; grid squares								; default SQUARE count for grid single row/col
+	RCSqMin		:= 3, RCSqMax := 43					; grid squares								; min/max square count for grid single row/col
+	RCSqCnt		:= (cfg.Grab('RCSqCnt')) ?  (cfg.Grab('RCSqCnt')) : this.DefSqCnt				; GRID  square count for grid single row/col
+	RCPxCnt		:= (cfg.Grab('RCPxCnt')) ?  (cfg.Grab('RCPxCnt')) : this.DefPxCnt				; SCREEN pixel count for grid single row/col
+	RCPxScl		=> Round(scaled(this.RCPxCnt))													; SCREEN pixel count for grid single row/col (scaled)
+	PxH			:= this.RCPxCnt + this.TxtCtrlH													; initial gui height
+	PxW			:= this.RCPxCnt																	; initial gui width
+	isActive	:= 0																			; whether tool is active/visible or not
+	txtInfo		:= ''																			; control to display color details
+	textFrgd	:= ''																			; text font color
+	textBkgd	:= ''																			; text bkgd color (hex format)
+	clrInfo		:= unset																		; all color info
+	BdrGap		:= 1																			; gui frame thickness
+	;############################################################################
+	__New(opts:='') {
+		super.__new(opts)																		; use papa
+		global ghGrid := this.hwnd																; use global var for performance reasons
+		this._customIni()																		; custom ini for gui
+	}
+	;############################################################################
+	_activeWinChanged() {																		; returns whether active window has changed
+		static prevWin := ''																	; used for comparisons
+		curWin := WinActive('A')																; get current active window
+		if (curWin != prevWin) {																; if active win has changed...
+			prevWin := curWin																	; ... save cur active win for comparison next visit
+			return true																			; ... flag caller that win has changed
+		}
+		return false																			; active win has NOT changed
+	}
+	;############################################################################
+	_customIni() {
+		fontSize	:= (gScale = 1) ? 's7' : 's8'												; ensure text is limited to 3 lines
+		this.SetFont(fontSize ' cWhite W600', 'Segoe UI')
+		txtOpts		:= 'Background000000 +border center +multi '								; options for text control
+		this.txtInfo:= this.Add('Text', Format(txtOpts 'x{} y{} w{} h{}'						; control to display color details
+					, this.BdrGap, this.RCPxCnt
+					, this.PxW-this.BdrGap*2, this.TxtCtrlH-this.BdrGap))
+		this._gdiIni()																			; grid canvas, for drawing
+		this.GridUpdateCB := ObjBindMethod(this, 'UpdateGrid')									; must have to use method for SetTimer
+		OnMessage(0x02E0, WM_DPICHANGED)														; gui detects dpi scaling changes (must follow Gui ini)
+		OnMessage(0x0014, guiPreventBkgdErase)													; prevent ugly flash when resizing gui
+	}
+	;############################################################################
+	CopyToClip(hk) {																			; very basic copy of details to clipboard (for now)
+		A_Clipboard := this._extractInfo(this.txtInfo.value, hk)								; put details in clipboard
+		SoundBeep(1000,50), this.txtInfo.Opt('Background00FF00 c000000')						; audible/visual confirmation
+		bClr := 'Background' this.textBkgd, fClr := ' c' this.textFrgd							; grab current font and bkgd colors
+		SetTimer(() => this.txtInfo.Opt(bClr fClr), -150)										; reset font and bkgd colors
+	}
+	;############################################################################
+	DrawCrossHairs(color, cStart, cEnd) {														; draws cross hairs to grid canvas
+		global ghMGuiDC
+		RCPxScl := this.RCPxScl
+		hPen	:= DllCall('CreatePen', 'Int', 0, 'Int', 1, 'UInt', color, 'Ptr')
+		hOldPen	:= DllCall('SelectObject', 'Ptr', ghMGuiDC, 'Ptr', hPen, 'Ptr')
+		DllCall('MoveToEx', 'Ptr', ghMGuiDC, 'Int', 0, 'Int', cStart, 'Ptr', 0)
+		DllCall('LineTo', 'Ptr', ghMGuiDC, 'Int', RCPxScl, 'Int', cStart)
+		DllCall('MoveToEx', 'Ptr', ghMGuiDC, 'Int', 0, 'Int', cEnd, 'Ptr', 0)
+		DllCall('LineTo', 'Ptr', ghMGuiDC, 'Int', RCPxScl, 'Int', cEnd)
+		DllCall('MoveToEx', 'Ptr', ghMGuiDC, 'Int', cStart, 'Int', 0, 'Ptr', 0)
+		DllCall('LineTo', 'Ptr', ghMGuiDC, 'Int', cStart, 'Int', RCPxScl)
+		DllCall('MoveToEx', 'Ptr', ghMGuiDC, 'Int', cEnd, 'Int', 0, 'Ptr', 0)
+		DllCall('LineTo', 'Ptr', ghMGuiDC, 'Int', cEnd, 'Int', RCPxScl)
+		DllCall('SelectObject', 'Ptr', ghMGuiDC, 'Ptr', hOldPen)
+		DllCall('DeleteObject', 'Ptr', hPen)
+	}
+	;############################################################################
+	_extractInfo(info,key) {																	; used to extract particular details from full info
+		if (key != '!h') 																		; if user did NOT press shortcut for HEX...
+			return info																			; ... return ALL info
+		line := StrSplit(info, '`n', '`r')														; get all lines from text
+		return RegExReplace(line[3], '^.+(\w{2}):(\w{2}):(\w{2})$', '$1$2$3')					; return just hex color info
+	}
+	;############################################################################
+	_gdiIni() {																					; ini drawing surfaces
+		global ghGuiDC, ghMGuiDC, ghMemBM, ghOldBM												; global vars help improve performance
+		ghGuiDC	 := DllCall('GetDC', 'Ptr', ghGrid, 'Ptr')										; device context for Gui (grid)
+		ghMGuiDC := DllCall('CreateCompatibleDC', 'Ptr', ghGuiDC, 'Ptr')						; device context for scratchpad
+		ghMemBM	 := DllCall('CreateCompatibleBitmap', 'Ptr', ghGuiDC							; canvas associated with gui window
+					, 'Int', this.RCPxScl, 'Int', this.RCPxScl, 'Ptr')
+		ghOldBM	 := DllCall('SelectObject', 'Ptr', ghMGuiDC										; scratchpad canvas
+					, 'Ptr', ghMemBM, 'Ptr')
+	}
+	;############################################################################
+	_gdiUpdate() {																				; update canvas for grid
+		global ghGuiDC, ghMGuiDC, ghMemBM, ghOldBM												; global vars help improve performance
+		RCPxScl := this.RCPxScl
+		DllCall('ReleaseDC', 'Ptr', ghGrid, 'Ptr', ghGuiDC)
+		ghGuiDC	:= DllCall('GetDC', 'Ptr', ghGrid, 'Ptr')
+		DllCall('SelectObject', 'Ptr', ghMGuiDC, 'Ptr', ghOldBM, 'Ptr')
+		DllCall('DeleteObject', 'Ptr', ghMemBM)
+		ghMemBM := DllCall('CreateCompatibleBitmap', 'Ptr', ghGuiDC
+					, 'Int', RCPxScl, 'Int', RCPxScl, 'Ptr')
+		ghOldBM := DllCall('SelectObject', 'Ptr', ghMGuiDC
+					, 'Ptr', ghMemBM, 'Ptr')
+	}
+	;############################################################################
+	GdiCleanup() {																				; release gdi resources
+		global ghGuiDC, ghMGuiDC, ghMemBM, ghOldBM												; global vars help improve update performance
+		DllCall('SelectObject', 'Ptr', ghMGuiDC, 'Ptr', ghOldBM, 'Ptr')
+		DllCall('DeleteObject', 'Ptr', ghMemBM)
+		DllCall('DeleteDC', 'Ptr', ghMGuiDC)
+		DllCall('ReleaseDC', 'Ptr', ghGrid, 'Ptr', ghGuiDC)
+	}
+	;############################################################################
+	_getClrInfo(srcClr) {																		; splits targ color into rgb, calcs best colors for cross-hairs, text, frames
+		c := clsGrid.Clr.RGBLH(srcClr)															; get rgb, luminance, hex values
+		;ToolTip("lum := " c.L)																	; TEMP DEBUG
+		txtFClr		:= (c.L > 145) ? '000000' : 'FFFFFF'										; set text frame and font color for best contrast
+		xHairClr	:= 0x808080																	; cross-hairs are mid gray by default
+		if (clsGrid.Clr.isMidGray(c.R,c.G,c.B))													; if target color is mid gray...
+			xHairClr:= (c.L > 128) ? 0x000000 : 0xFFFFFF										; adj cross-hair color for best contrast
+		this.clrInfo:= {Clr:c,xHairClr:xHairClr,txtFClr:txtFClr}								; save for later use
+		return this.clrInfo
+	}
+	;############################################################################
+	_getHeights() {																				; returns cur height and gui max height allowed
+		padding	:= 0
+		maxH	:= floor((A_ScreenHeight/2)-(gGui.OffsetY/2)-padding)
+		curH	:= Round(scaled(gGui.PxH) + gGui.OffsetY)
+		return	{curH:curH,maxH:maxH}
+	}
+	;############################################################################
+	HideGUI() {																					; hide grid gui, disable updates
+		this.IsActive := 0
+		SetTimer(this.GridUpdateCB, 0)
+		guiWinFade(this, 2, 750)
+		this.Hide()
+	}
+	;############################################################################
+	HL_CenterPx(cStart, cEnd) {																	; draws highlight box to center of grid canvas
+		global ghMGuiDC
+		; create white, black brushes
+		hBrushW	:= DllCall('CreateSolidBrush', 'UInt', 0xFFFFFF, 'Ptr')
+		hBrushB := DllCall('CreateSolidBrush', 'UInt', 0x000000, 'Ptr')
+		; draw white square in center of grid
+		rectW := Buffer(16, 0)
+		NumPut('Int', cStart, 'Int', cStart, 'Int', cEnd + 1, 'Int', cEnd + 1, rectW)
+		DllCall('FrameRect', 'Ptr', ghMGuiDC, 'Ptr', rectW, 'Ptr', hBrushW)
+		; draw black square in center of grid
+		rectB := Buffer(16, 0)
+		NumPut('Int', cStart + 1, 'Int', cStart + 1, 'Int', cEnd, 'Int', cEnd, rectB)
+		DllCall('FrameRect', 'Ptr', ghMGuiDC, 'Ptr', rectB, 'Ptr', hBrushB)
+		; cleanup resources
+		DllCall('DeleteObject', 'Ptr', hBrushW)
+		DllCall('DeleteObject', 'Ptr', hBrushB)
+	}
+	;############################################################################
+	HL_Frame() {																				; draws white and black frame around gui
+		global ghMGuiDC
+		WinGetClientPos(&x, &y, &w, &h, ghGrid)													; provides SCALED values for gui
+		; create white, black brushes
+		hBrushW	:= DllCall('CreateSolidBrush', 'UInt', 0xFFFFFF, 'Ptr')							; white brush
+		hBrushB	:= DllCall('CreateSolidBrush', 'UInt', 0x000000, 'Ptr')							; black brush
+		; draw white frame around entire gui
+		hDC		:= DllCall('GetDC', 'Ptr', ghGrid, 'Ptr')										; get DC for full Gui
+		rectW	:= Buffer(16, 0)																; rectangle struct
+		NumPut('Int', 0, 'Int', 0, 'Int', w, 'Int', h, rectW)									; place coords in rect struct
+		DllCall('FrameRect', 'Ptr', hDC, 'Ptr', rectW, 'Ptr', hBrushW)							; draw white frame to gui DC
+		; draw white frame inside just grid area
+		rectW	:= Buffer(16, 0)																; rectangle struct
+		NumPut('Int', 0, 'Int', 0, 'Int', this.RCPxScl, 'Int', this.RCPxScl, rectW)				; place coords in rect struct
+		DllCall('FrameRect', 'Ptr', ghMGuiDC, 'Ptr', rectW, 'Ptr', hBrushW)						; draw white frame around grid area
+		; draw black frame inside white frame of grid area
+		rectB := Buffer(16, 0)																	; rectangle struct
+		NumPut('Int', 1, 'Int', 1, 'Int', this.RCPxScl-1, 'Int', this.RCPxScl-1, rectB)			; place coords in rect struct
+		DllCall('FrameRect', 'Ptr', ghMGuiDC, 'Ptr', rectB, 'Ptr', hBrushB)						; draw black frame around grid area
+		; cleanup resources
+		DllCall('DeleteObject', 'Ptr', hBrushW)
+		DllCall('DeleteObject', 'Ptr', hBrushB)
+	}
+	;############################################################################
+	_isSizeOk() {																				; helps prevent rapid flip-flop repositioning of gui
+		h := this._getHeights()
+		return	h.curH < h.maxH
+	}
+	;############################################################################
+	NeedsUpdate() {																				; prevents grid updates if no change occurred
+		static lastX := '', lastY := '', lastRCPxCnt := '', lastRCSqCnt := ''					; used for comparisons
+		MouseGetPos(&mX, &mY)																	; get current mouse position
+		if (lastX!=mX || lastY!=mY																; if mouse moved...
+		|| lastRCPxCnt!=this.RCPxCnt															; ... OR grid win size changed...
+		|| lastRCSqCnt!=this.RCSqCnt															; ... OR grid magnification changed...
+		|| this._activeWinChanged()) {															; ... OR active window changed...
+			lastX:=mx,lastY:=mY,lastRCPxCnt:=this.RCPxCnt,lastRCSqCnt:=this.RCSqCnt				; ...	save values for comparison next visit
+			return true																			; ...	notify caller that changes occurred
+		}
+		return false																			; otherwise, NO change occurred
+	}
+	;############################################################################
+	Resize(delta) {																				; perform grid win resize operations
+		h		:= this._getHeights()															; get cur grid height and max allowed
+		newSz	:= (!this._isSizeOk()) ? this.DefPxCnt											; resize to default value if too-big
+				: ((delta < 1 || h.curH + delta < h.maxH) ? this.RCPxCnt + delta : 0)			; prevent enlargement if at max size
+		if (newSz < 100)																		; prevent text from clipping at edges of control
+			return
+		this.PxW := this.RCPxCnt := newSz, this.PxH := this.RCPxCnt + this.TxtCtrlH				; set new width/height for grid win
+		this._gdiUpdate(), this.Move(,,this.PxW,this.PxH)										; update win size/view for new dimensions
+		tiW := this.PxW - this.BdrGap*2, tiH := this.TxtCtrlH - this.BdrGap						; set width/height for color info box
+		this.txtInfo.Move(this.BdrGap, this.RCPxCnt, tiW, tiH)									; resize color info box
+		cfg.Save('RCPxCnt',this.RCPxCnt)														; save cur pixel COUNT for single row of grid
+	}
+	;############################################################################
+	ShowGui() {																					; show grid gui, enable timer for updates
+		this.IsActive := 1																		; flag as visible
+		MouseGetPos(&mX, &mY), gX := mX + this.OffsetX, gY := mY + this.OffsetY					; set position for grid gui
+		this.UpdateGrid(1)	; force grid update while hidden									; softens abrupt painting
+		this.Show(Format('hide x{} y{} w{} h{}', gX, gY, this.PxW, this.PxH))					; hide initially, for better animation effect
+		guiWinFade(this, 1, 1000)																; animate entrance
+		this.Show()																				; make it permanent
+		SetTimer(this.GridUpdateCB, 50)															; enable normal grid updates
+	}
+	;############################################################################
+	ToggleActive() {																			; toggles whether tool is activate or not
+		if (this.IsActive ^= 1)																	; if IS active...
+			this.ShowGui(), this.UpdateGrid(1)													; ... show, and force update
+		else
+			this.HideGui()																		; otherwise, hide grid gui
+	}
+	;############################################################################
+	UpdateGrid(force:=0) {																		; updates grid using a timer, but can be forced as well
+		global ghGuiDC, ghMGuiDC																; global vars improve performance
+		if (!force && !this.NeedsUpdate())														; if no changes are detected...
+			return																				; ... no need for update
+		MouseGetPos(&mX, &mY)																	; get current mouse position
+		pxPerSqr	:= this.RCPxScl / this.RCSqCnt												; [pixels per grid square]
+		halfGrid	:= Floor(this.RCSqCnt / 2)													; [number of GRID SQUARES on either side of center]
+		cStart		:= Floor(halfGrid * pxPerSqr)												; [number of PIXELS on either side of center]
+		cEnd		:= cStart + Ceil(pxPerSqr)													; include center square also
+		; get src and dest coords, width, height for drawing
+		; also need to make adjustments at screen edges
+		srcX := mX - halfGrid, srcY := mY - halfGrid											; coords that will begin screen capture
+		dstX := 0, dstY := 0, drawW := this.RCSqCnt, drawH := this.RCSqCnt
+		if (srcX < 0)
+			dstX := Round(Abs(srcX) * pxPerSqr), drawW -= Abs(srcX), srcX := 0
+		if (srcY < 0)
+			dstY := Round(Abs(srcY) * pxPerSqr), drawH -= Abs(srcY), srcY := 0
+		maxW := DllCall('GetSystemMetrics', 'Int', 78, 'Int')
+		maxH := DllCall('GetSystemMetrics', 'Int', 79, 'Int')
+		if (srcX + drawW > maxW)
+			drawW := maxW - srcX
+		if (srcY + drawH > maxH)
+			drawH := maxH - srcY
+		; draw to grid canvas
+		DllCall('BitBlt', 'Ptr', ghMGuiDC, 'Int', 0, 'Int', 0, 'Int', this.RCPxScl				; start with black grid canvas
+			, 'Int', this.RCPxScl, 'Ptr', 0, 'Int', 0, 'Int', 0, 'UInt', 0x00000042)			; ... needed when capturing screen edges
+		hScrnDC := DllCall('GetDC', 'Ptr', 0, 'Ptr')											; get screen device context
+		DllCall('StretchBlt',																	; stretch screen image onto grid canvas
+			'Ptr', ghMGuiDC,
+			'Int', dstX, 'Int', dstY,
+			'Int', Round(drawW * pxPerSqr),
+			'Int', Round(drawH * pxPerSqr),
+			'Ptr', hScrnDC,
+			'Int', srcX,
+			'Int', srcY,
+			'Int', drawW, 'Int', drawH,
+			'UInt', 0x00CC0020	)
+		targClr	:= DllCall('GetPixel', 'Ptr', hScrnDC, 'Int', mX, 'Int', mY, 'UInt')			; get pixel color at mouse pointer
+		clrs	:= this._getClrInfo(targClr)													; process/return color details
+		this.UpdateText(mX,mY,clrs)																; update text details
+		this.DrawCrossHairs(clrs.xHairClr, cStart, cEnd)										; draw cross-hairs to grid canvas
+		this.HL_CenterPx(cStart,cEnd)															; highlight center square
+		this.HL_Frame()					; must be done after text update						; add contrast frame to grid gui
+		DllCall('BitBlt','Ptr',ghGuiDC,'Int',0,'Int',0,'Int',this.RCPxScl						; transfer all updates to gui canvas
+				,'Int',this.RCPxScl,'Ptr',ghMGuiDC,'Int',0,'Int',0,'UInt',0x00CC0020)
+		DllCall('ReleaseDC', 'Ptr', 0, 'Ptr', hScrnDC)											; discard screen DC resource
+		this.UpdateGridPos()																	; move gui relative to mouse position
+	}
+	;############################################################################
+	UpdateGridPos() {																			; reposition grid gui relative to mouse pos
+		static xDir := 0, yDir := 0
+		if (!this._isSizeOk())																	; if grid gui is too big for auto-wrapping...
+			this.Resize(0)																		; ... resize grid gui
+		MouseGetPos(&mX, &mY)																	; get current mouse coords
+		WinGetPos(&rX, &rY, &rW, &rH, ghGrid)													; get SCALED gui dimensions
+		maxW := DllCall('GetSystemMetrics', 'Int', 78, 'Int')									; get screen boundary - right
+		maxH := DllCall('GetSystemMetrics', 'Int', 79, 'Int')									; get screen boundary - bottom
+		minX := DllCall('GetSystemMetrics', 'Int', 76, 'Int')									; get screen boundary - left
+		minY := DllCall('GetSystemMetrics', 'Int', 77, 'Int')									; get screen boundary - top
+		;########################################################################
+		; x-axis
+		if (xDir = 0) {
+			; if moving R and win hits R edge, flip Gui to L of mouse pointer
+			if (mX + this.OffsetX + rW > minX + maxW) {
+				gX := mX - rW - this.OffsetX, xDir := 1
+			} else {
+				gX := mX + this.OffsetX
+			}
+		} else { ; xDir = 1
+			; only flip back to R side of mouse when Gui reaches L edge
+			if (mX - rW - this.OffsetX < minX) {
+				gX := mX + this.OffsetX, xDir := 0
+			} else {
+				gX := mX - rW - this.OffsetX
+			}
+		}
+		;########################################################################
+		; y-axis
+		if (yDir = 0) {
+			; if moving dn and win hits bot edge, flip Gui above mouse pointer
+			if (mY + this.OffsetY + rH > minY + maxH) {
+				gY := mY - rH - this.OffsetY, yDir := 1
+			} else {
+				gY := mY + this.OffsetY
+			}
+		} else { ; yDir = 1
+			; only flip below mouse pointer when Gui reaches top edge
+			if (mY - rH - this.OffsetY < minY) {
+				gY := mY + this.OffsetY, yDir := 0
+			} else {
+				gY := mY - rH - this.OffsetY
+			}
+		}
+		;########################################################################
+		; safety overrides to prev gui clipping under taskbars/edges
+		if (gX < minX)
+			gX := minX
+		if (gY < minY)
+			gY := minY
+		if (gX + rW > minX + maxW)
+			gX := (minX + maxW) - rW
+		if (gY + rH > minY + maxH)
+			gY := (minY + maxH) - rH
+
+		WinMove(gX,gY,,,ghGrid)
+	}
+	;############################################################################
+	UpdateText(x,y,clrs) {																		; updates text area of display
+		R := clrs.Clr.R, G := clrs.Clr.G, B := clrs.Clr.B										; grab RGB
+		this.textBkgd		:= clrs.Clr.H														; save text bkgd for later (hex color)
+		this.textFrgd		:= clrs.txtFClr														; save text frgd for later
+		xyStr				:= Format('XY {},{}', x, y)											; XY coords  of target pixel
+		rgbStr				:= Format('RGB {},{},{}', R,G,B)									; RGB colors of target pixel
+		hexStr				:= Format('{:02X}:{:02X}:{:02X}', R,G,B)							; add colon separators for hex values
+		this.txtInfo.Value	:= xyStr '`n' rgbStr '`n' 'HEX ' hexStr								; update text control
+		this.txtInfo.Opt('Background' this.textBkgd ' c' this.textFrgd)							; set font color and display target color
+	}
+	;############################################################################
+	zoomIn() {																					; increase magnification
+		if (this.RCSqCnt > this.RCSqMin) {
+			this.RCSqCnt -= 2, cfg.Save('RCSqCnt',this.RCSqCnt)
+		}
+	}
+	;############################################################################
+	zoomOut() {																					; decrease magnification
+		if (this.RCSqCnt < this.RCSqMax) {
+			this.RCSqCnt += 2, cfg.Save('RCSqCnt',this.RCSqCnt)
+		}
+	}
+	;############################################################################
+	; CLR - organize extraction of color info
+	class CLR
+	{
+		;########################################################################
+		Static RGBLH(srcClr) {																	; extracts R,G,B components of srcClr
+			R	:=  srcClr			& 0xFF														; extract red	 component
+			G	:= (srcClr >> 8)	& 0xFF														; extract green	 component
+			B	:= (srcClr >> 16)	& 0xFF														; extract blue	 component
+			L	:= ((0.299 * R) + (0.587 * G) + (0.114 * B))									; calculate luminance value
+			H	:= Format('{:02X}{:02X}{:02X}', R,G,B)											; hex colors of target pixel
+			return {R:R,G:G,B:B,L:L,H:H}														; return extracted values, obj
+		}
+		;########################################################################
+		Static IsMidGray(r,g,b) {																; returns whether rgb values are within mid gray range
+			lv:=100, hv:=156																	; luminosity range considered medium gray
+			return (r>=lv && r<=hv && g>=lv && g<=hv && b>=lv && b<=hv)
+		}
+	}
+}
+;################################################################################
+; clsHKList - Shortcuts list
+;################################################################################
+class clsHKList extends Gui
+{
+	_chkHK	 := ''																				; will become checkbox control
+	_keyList := [																				; shortcut list array
 	'F8:Toggle Tool On/Off',
 	'Alt + C:Copy ALL info to clipboard',
 	'Alt + H:Copy HEX value to clipboard',
@@ -129,506 +508,307 @@ showHKList(useGui:=1) {
 	'Shift + Arrows/Wheel:Resize window/view',
 	'Ctrl  + Arrows/Wheel:Adjust magnification',
 	'Ctrl  + Escape:Quit Tool']
-	if (useGui) {
-		global gHKGui := showHKTable(keyList,'Hue-Hacker')									; will need access for closing purposes
+	;############################################################################
+	__New(winX:='',winY:='') {																	; constructor
+		this._winX := winX																		; custom X pos for window
+		this._winY := winY																		; custom Y pos for window
+		this._iniHKGui()																		; initialize window and controls
+		this.Title := 'HHHKLIST'																; used as detection flag for escape key
+		OnMessage(0x0201, WM_LBUTTONDOWN)														; enable click/drag anywhere in HK gui
+	}
+	;############################################################################
+	_evCtrl(ctrl,*) {																			; event handler for checkbox
+		if (ctrl.name = 'chkHK')
+			val := ctrl.Value, cfg.Save('ShowHKs',val)											; save check/unchecked setting
+	}
+	;############################################################################
+	HideGui() {																					; hides shortcut list using animation
+		this.SavePos()										; probably redundant				; save current window position
+		guiWinFade(this, 2, 750)																; animate departure
+		this.Hide()																				; make hide permanent
+	}
+	;############################################################################
+	_iniHKGui() {
+		super.__New('-Caption +ToolWindow +AlwaysOnTop +border')
+		this.BackColor := cfg.Grab('SkinClr'), this.name := 'hkGui'
+		fontName := 'Segoe UI', textColor := 'cE0E0E0', triggerClr := 'c6495ED'
+		; list header
+		t := 'Shortcuts for Hue-Hacker'
+		this.SetFont('s12 w700 ' textColor, fontName)
+		this.Add('Text', 'x20 y15 w210 h30', t)
+		this.SetFont('s7 ' textColor, fontName)
+		this._chkHK := this.Add('Checkbox','vchkHK x240 y25 w115 right','Show at launch')
+		this._chkHK.value := cfg.Grab('ShowHKs')												; checkbox checked or not?
+		this._chkHK.OnEvent('Click',this._evCtrl.Bind(this._chkHK))								; enable/disable showing HK list at launch
+		this.Add('Text','x20 y48 w390 h2 Background333333')										; txt control used as divider line
+		; add hk list
+		cY := 60
+		for idx, kv in this._keyList {															; for each entry in shortcut list array...
+			ss := StrSplit(kv,':'), key := ss[1], desc := ss[2]									; extract trigger and description
+			cY += (A_Index>1) ? 25 : 0															; adjust Y pos for each line
+			this.SetFont('s9 w600 ' triggerClr, 'Consolas')										; trigger font
+			this.Add('Text', 'x20 y' cY ' w190 h19', '  ' key)									; trigger
+			this.SetFont('s9 w400 ' textColor, fontName)										; desc font
+			this.Add('Text', 'center x220 y' cY ' w190 h19', desc)								; desc
+		}
+		; show window with custom placement
+		winX := this._winX, winY := this._winY													; get custom x/y
+		winX := (winX!='') ? winX : cfg.Grab('HKListX')											; if custom x is empty, use value in ini file
+		winY := (winY!='') ? winY : cfg.Grab('HKListY')											; if custom y is empty, use value in ini file
+		this.width := 430, this.height := cY+Scaled(30)											; adj height dynamically depending on list len
+		this.ShowGui(winX, winY)
+	}
+	;############################################################################
+	SavePos() {																					; ensures custom win pos is saved
+		this.GetPos(&x,&y)																		; get current win pos on screen
+		cfg.Save('HkListX',x), cfg.Save('HkListY',y)											; save current win pos
+	}
+	;############################################################################
+	ShowGui(x:='',y:='') {																		; shows list using animation
+		winX := (x='') ? '' : ' x' x															; use custom x pos is avail
+		winY := (y='') ? '' : ' y' y															; use custom y pos is avail
+		this.Show(Format(winX winY ' hide w{} h{}', this.width, this.height))					; hide gui initially, for better animation
+		guiWinFade(this, 1, 750)																; animate entrance
+		this.Show()																				; make it permanent
+	}
+}
+;################################################################################
+; clsSplash - animated splash screen
+;################################################################################
+class clsSplash extends Gui
+{
+	_pad	:= scaled(15)																		; gui edge padding
+	_bxSz	:= scaled(50)																		; size of individual squares for cube
+	_Sz		:= scaled(225)																		; general target size for splash screen
+	_cbSz	=> this._bxSz*3																		; full cube size
+	Width	=> this._Sz	  + (this._pad*2)														; final width  of splash screen
+	Height	=> this.Width + (this._pad*2)				; longer for aesthetics					; final height of splash screen
+	_ctrBx	=> { X1:this._pad+this._bxSz,														; center rectangle of cube
+				 Y1:this._pad+this._bxSz,
+				 X2:this._pad+this._bxSz*2,
+				 Y2:this._pad+this._bxSz*2, }
+
+	;############################################################################
+	__New() {																					; constructor
+		this._build(), this._showBriefly()
+	}
+	;############################################################################
+	_build() {
+		super.__New('-Caption +AlwaysOnTop +ToolWindow +Border')
+		this.BackColor := cfg.Grab('SkinClr')
+		; build cube using txt boxes
+		pad := this._pad, bxSz := this._bxSz
+		; colors for boxes
+		cRed  := 'FF0000', cGrn	 := '00FF00', cBlue	:= '0000FF'
+		cOrng := 'FF8000', cWhte := 'FFFFFF', cPrpl	:= '8800FF'
+		cYelw := 'FFFF00', cMgta := 'FF00FF', cCyan	:= '00FFFF'
+		; top row
+		fmtStr := 'x{} y{} w{} h{} Background{}'												; common formatting for all txt boxes
+		this.Add('Text', Format(fmtStr, pad,		pad,		bxSz, bxSz, cRed ))
+		this.Add('Text', Format(fmtStr, pad+bxSz,	pad,		bxSz, bxSz, cGrn ))
+		this.Add('Text', Format(fmtStr, pad+bxSz*2,	pad,		bxSz, bxSz, cBlue))
+		; middle row
+		this.Add('Text', Format(fmtStr, pad,		pad+bxSz,   bxSz, bxSz, cOrng))
+		this.Add('Text', Format(fmtStr, pad+bxSz,	pad+bxSz,   bxSz, bxSz, cWhte))
+		this.Add('Text', Format(fmtStr, pad+bxSz*2,	pad+bxSz,   bxSz, bxSz, cPrpl))
+		; bottom row
+		this.Add('Text', Format(fmtStr, pad,		pad+bxSz*2, bxSz, bxSz, cYelw))
+		this.Add('Text', Format(fmtStr, pad+bxSz,	pad+bxSz*2, bxSz, bxSz, cMgta))
+		this.Add('Text', Format(fmtStr, pad+bxSz*2,	pad+bxSz*2, bxSz, bxSz, cCyan))
+		; add title text
+		this.SetFont('s10 cWhite Bold', 'Segoe UI'), fmtStr := 'x{} y{} w{} right'
+		this.Add('Text', Format(fmtStr, pad, pad+bxSz*3+10, bxSz*3), 'HUE-HACKER')
+		this.SetFont('s8 c0X777777', 'Segoe UI')
+		vers := StrReplace(gAppVers,'-')
+		this.Add('Text', Format(fmtStr, pad, pad+bxSz*3+30, bxSz*3), vers)
+	}
+	;################################################################################
+	_drawReticle() {																			; draw cross-hair on splash screen
+		hwnd := this.hwnd
+		hdc := DllCall('GetDC', 'Ptr', hwnd, 'Ptr')
+		; grab gui dimensions
+		rect := Buffer(16, 0)
+		DllCall('GetClientRect', 'Ptr', hwnd, 'Ptr', rect)
+		w := NumGet(rect, 8, 'Int'), h := NumGet(rect, 12, 'Int')
+		; use double buffer to keep the cross-hair rendering instant
+		hdcMem	:= DllCall('CreateCompatibleDC', 'Ptr', hdc, 'Ptr')
+		hBitmap	:= DllCall('CreateCompatibleBitmap', 'Ptr', hdc, 'Int', w, 'Int', h, 'Ptr')
+		oldBmp	:= DllCall('SelectObject', 'Ptr', hdcMem, 'Ptr', hBitmap, 'Ptr')
+		; place the gui image into this buffer
+		DllCall('BitBlt', 'Ptr', hdcMem, 'Int', 0, 'Int', 0, 'Int', w, 'Int', h
+			, 'Ptr', hdc, 'Int', 0, 'Int', 0, 'UInt', 0x00CC0020)
+		; high-contrast drawing pens for cross-hair
+		hBlackPen := DllCall('CreatePen', 'Int', 0, 'Int', 4, 'UInt', 0x000000, 'Ptr')
+		hWhitePen := DllCall('CreatePen', 'Int', 0, 'Int', 2, 'UInt', 0xFFFFFF, 'Ptr')
+		; cross-hair position
+		tX1	 := this._ctrBx.X1, tY1 := this._ctrBx.Y1
+		tX2	 := this._ctrBx.X2, tY2 := this._ctrBx.Y2
+		midX := tX1 + ((tX2 - tX1) / 2), midY := tY1 + ((tY2 - tY1) / 2), ext := 12				; cross hair centered on center square
+		midX := scaled(midX), midY := scaled(midY), ext := scaled(ext)							; ensure cross-hair pos is adj for scaling
+		midX *= .88, midY *= .88																; OPTIONAL - include dynamic offset
+		; paint cross-hair over the cube
+		Loop 2 {
+			currentPen := (A_Index == 1) ? hBlackPen : hWhitePen
+			oldObj := DllCall('SelectObject', 'Ptr', hdcMem, 'Ptr', currentPen, 'Ptr')
+			DllCall('MoveToEx', 'Ptr', hdcMem, 'Int', midX - ext, 'Int', midY, 'Ptr', 0)
+			DllCall('LineTo', 'Ptr', hdcMem, 'Int', midX - 2, 'Int', midY)
+			DllCall('MoveToEx', 'Ptr', hdcMem, 'Int', midX + 2,'Int', midY, 'Ptr', 0)
+			DllCall('LineTo', 'Ptr', hdcMem, 'Int', midX + ext, 'Int', midY)
+			DllCall('MoveToEx', 'Ptr', hdcMem, 'Int', midX, 'Int', midY - ext, 'Ptr', 0)
+			DllCall('LineTo', 'Ptr', hdcMem, 'Int', midX, 'Int', midY - 2)
+			DllCall('MoveToEx', 'Ptr', hdcMem, 'Int', midX, 'Int', midY + 2,'Ptr', 0)
+			DllCall('LineTo', 'Ptr', hdcMem, 'Int', midX, 'Int', midY + ext)
+			DllCall('SelectObject', 'Ptr', hdcMem, 'Ptr', oldObj, 'Ptr')
+		}
+		; blast the combined images to screen in one shot
+		DllCall('BitBlt', 'Ptr', hdc, 'Int', 0, 'Int', 0, 'Int', w, 'Int', h
+			, 'Ptr', hdcMem, 'Int', 0, 'Int', 0, 'UInt', 0x00CC0020)
+		; clean up
+		DllCall('DeleteObject', 'Ptr', hBlackPen)
+		DllCall('DeleteObject', 'Ptr', hWhitePen)
+		DllCall('SelectObject', 'Ptr', hdcMem, 'Ptr', oldBmp, 'Ptr')
+		DllCall('DeleteObject', 'Ptr', hBitmap)
+		DllCall('DeleteDC', 'Ptr', hdcMem)
+		DllCall('ReleaseDC', 'Ptr', hwnd, 'Ptr', hdc)
+	}
+	;############################################################################
+	_showBriefly() {																			; shows splash briefly, using animation
+		this.Show(Format('hide w{} h{}', this.width, this.height))								; hide gui initially, for better animation
+		guiWinFade(this, 1, duration := 1000)													; animate entrance
+		this._drawReticle(), sleep(1700)														; blast cross-hair on top
+		guiWinFade(this, 2, duration := 1500)													; animate departure
+		this.Destroy()																			; see ya!
+	}
+}
+;#################################  FUNCTIONS  ##################################
+;################################################################################
+																	   getScale()				; compensates for screen scaling
+;################################################################################
+{
+	hDC := DllCall('GetDC', 'Ptr', 0, 'Ptr')
+	dpi := DllCall('GetDeviceCaps', 'Ptr', hDC, 'Int', 88, 'Int')
+	DllCall('ReleaseDC', 'Ptr', 0, 'Ptr')
+	global gScale := dpi / 96
+	return gScale
+}
+;################################################################################
+														 guiForceUpdate(reset:=0)				; forces a grid update for 2 secs
+;################################################################################
+{
+	static c := 0, maxC := 40	; 50 X 40 :=  2 secs
+	start := 0
+	if (reset)
+		start := (c=0), c := 0																	; determine whether timer needs started
+	if (++c > maxC) {
+		setTimer(%A_ThisFunc%, 0), c := 0
 		return
 	}
-	msg := 	'SHORTCUT`t`tFUNCTION`n`n'
-	for idx, kv in keyList {
-		ss := StrSplit(kv,':')
-		key := '[ ' ss[1] ' ]'
-		tabCount := Ceil(4 - (StrLen(key)/7))
-		tabCount := max(1,tabCount), tabCount := min(3,tabCount)
-		tabStr := StrReplace(Format('{:' tabCount '}', ''), ' ', '`t')
-		msg .= key tabStr ss[2] '`n'
-	}
-	MsgBox(msg, 'HUE-HACKER ' StrReplace(appVersion,'-'))
+	gGui.UpdateGrid(1)
+	(start) && (setTimer(%A_ThisFunc%, 50))														; start timer if needed
 }
 ;################################################################################
-; allows gui to detect dpi changes on the fly, which initiates a script reload
-WM_DPICHANGED(wParam, lParam, msg, hwnd) {
-	dpi				:= (wParam >> 16) & 0xFFFF												; wParam HIWORD - new Y-axis DPI
-	IniWrite(1, gINIFile, 'Settings', 'Reloaded')											; flag to show Gui and not HK list during reload
-	Reload()																				; reload script to use new scaling
+																  guiHKListHide()
+;################################################################################
+{
+	if (!WinExist('HHHKLIST') || !guiIsVisible(gHKGui))											; if shortcut list gui not found OR already hidden...
+		return																					; ... don't attempt hide
+	gHKGui.HideGui()																			; is visible... hide it
 }
 ;################################################################################
-cleanup() {
-	DllCall('SelectObject', 'Ptr', ghMGuiDC, 'Ptr', ghOldBM, 'Ptr')
-	DllCall('DeleteObject', 'Ptr', ghMemBM)
-	DllCall('DeleteDC', 'Ptr', ghMGuiDC)
-	DllCall('ReleaseDC', 'Ptr', gGui.Hwnd, 'Ptr', ghGuiDC)
+																  guiHKListShow()				; shows shortcut list
+;################################################################################
+{
+	if (!WinExist('HHHKLIST'))																	; if shortcut list gui not created yet...
+		global gHKGui := clsHKList()															; ... create and show it
+	else if (!guiIsVisible(gHKGui))																; if exists but not visible...
+		gHKGui.ShowGui()																		; ... show it
 }
 ;################################################################################
-; used to prevent updates to gui unless a change has occurred
-hasUpdated() {																				; for change detection
-	static lastX := '', lastY := '', lastRCPxCnt := '', lastRCSqCnt := ''
-	MouseGetPos(&mX, &mY)																	; get current mouse position
-	if (lastX=mX && lastY=mY && lastRCPxCnt=gRCPxCnt && lastRCSqCnt=gRCSqCnt)				; if NO change has occurred...
-		return false																		; ...notify caller
-	lastX:=mx,lastY:=mY,lastRCPxCnt:=gRCPxCnt,lastRCSqCnt:=gRCSqCnt							; save values for comparison next visit
-	return true																				; change HAS occurred
+																guiIsVisible(obj)				; determines whether gui or control is visible
+;################################################################################
+{
+	return ControlGetVisible(obj)
 }
 ;################################################################################
-; set force to 1 to bypass the hasChanged check. Used for wheel-scroll support.
-updateGrid(force:=0) {																		; updates grid using a timer
-	if (!force && !hasUpdated()) {															; if no changes are detected...
-		return																				; ... no need for update
-	}
-	MouseGetPos(&mX, &mY)																	; get current mouse position
-	getRCPxScl()																			; ensure gRCPxScl is updated
-	pxPerSqr	:= gRCPxScl / gRCSqCnt														; pixels per grid square
-	halfGrid	:= Floor(gRCSqCnt / 2)														; number of GRID SQUARES on either side of center
-	cStart		:= Floor(halfGrid * pxPerSqr)												; number of PIXELS on either side of center
-	cEnd		:= cStart + Ceil(pxPerSqr)													; include center square also
-
-	; get src and dest coords, width, height for drawing
-	; also need to make adjustments at screen edges
-	srcX := mX - halfGrid, srcY := mY - halfGrid											; coords that will begin screen capture
-	dstX := 0, dstY := 0, drawW := gRCSqCnt, drawH := gRCSqCnt
-	if (srcX < 0)
-		dstX := Round(Abs(srcX) * pxPerSqr), drawW -= Abs(srcX), srcX := 0
-	if (srcY < 0)
-		dstY := Round(Abs(srcY) * pxPerSqr), drawH -= Abs(srcY), srcY := 0
-	maxW := DllCall('GetSystemMetrics', 'Int', 78, 'Int')
-	maxH := DllCall('GetSystemMetrics', 'Int', 79, 'Int')
-	if (srcX + drawW > maxW)
-		drawW := maxW - srcX
-	if (srcY + drawH > maxH)
-		drawH := maxH - srcY
-
-	; draw to grid canvas
-	DllCall('BitBlt', 'Ptr', ghMGuiDC, 'Int', 0, 'Int', 0, 'Int', gRCPxScl					; start with black grid canvas
-		, 'Int', gRCPxScl, 'Ptr', 0, 'Int', 0, 'Int', 0, 'UInt', 0x00000042)
-	hScrnDC := DllCall('GetDC', 'Ptr', 0, 'Ptr')											; get screen device context
-	DllCall('StretchBlt',																	; stretch screen image onto grid canvas
-		'Ptr', ghMGuiDC,
-		'Int', dstX, 'Int', dstY,
-		'Int', Round(drawW * pxPerSqr),
-		'Int', Round(drawH * pxPerSqr),
-		'Ptr', hScrnDC,
-		'Int', srcX,
-		'Int', srcY,
-		'Int', drawW, 'Int', drawH,
-		'UInt', 0x00CC0020
-	)
-	targClr	:= DllCall('GetPixel', 'Ptr', hScrnDC, 'Int', mX, 'Int', mY, 'UInt')			; get pixel color at mouse pointer
-	clrs	:= getColors(targClr)															; process/return color details
-	updateText(mX,mY,clrs)																	; update text details
-	drawCrossHairs(clrs.xHairClr, cStart, cEnd)												; draw cross-hairs to grid canvas
-	HL_CtrPixel(cStart,cEnd)																; highlight center square
-	HL_GuiFrame()					; must be done after text update						; add contrast frame to gui
-	DllCall('BitBlt', 'Ptr', ghGuiDC, 'Int', 0, 'Int', 0, 'Int', gRCPxScl, 'Int'			; transfer all updates to Gui canvas
-			, gRCPxScl, 'Ptr', ghMGuiDC, 'Int', 0, 'Int', 0, 'UInt', 0x00CC0020)
-	DllCall('ReleaseDC', 'Ptr', 0, 'Ptr', hScrnDC)											; discard screen DC resource
-	updateGuiPos()																			; move gui relative to mouse position
+								   guiPreventBkgdErase(wParam, lParam, msg, hwnd)				; prevent background erase (ugly flash)
+;################################################################################
+{
+	if (hwnd = gGui.Hwnd)
+		return 1																				; ... BUT ONLY return a value for grid gui!
+	; return NOTHING, not even 0!																; ... otherwise it also affects child windows and ctrls
 }
 ;################################################################################
-updateGuiPos() {																			; reposition gui relative to mouse pos
-	static xDir := 0, yDir := 0
-	if (!isSizeOk())																		; if gui is too big for auto-wrapping...
-		resizeGui(0)																		; ... resize gui
-
-	MouseGetPos(&mX, &mY)																	; get current mouse coords
-	WinGetPos(&rX, &rY, &rW, &rH, gGui.Hwnd)												; get SCALED gui dimensions
-	maxW := DllCall('GetSystemMetrics', 'Int', 78, 'Int')									; get screen boundary - right
-	maxH := DllCall('GetSystemMetrics', 'Int', 79, 'Int')									; get screen boundary - bottom
-	minX := DllCall('GetSystemMetrics', 'Int', 76, 'Int')									; get screen boundary - left
-	minY := DllCall('GetSystemMetrics', 'Int', 77, 'Int')									; get screen boundary - top
-
-	;############################################################################
-	; x-axis
-	if (xDir = 0) {
-		; if moving R and win hits R edge, flip Gui to L of mouse pointer
-		if (mX + gOffsetX + rW > minX + maxW) {
-			gX := mX - rW - gOffsetX, xDir := 1
-		} else {
-			gX := mX + gOffsetX
-		}
-	} else { ; xDir = 1
-		; only flip back to R side of mouse when Gui reaches L edge
-		if (mX - rW - gOffsetX < minX) {
-			gX := mX + gOffsetX, xDir := 0
-		} else {
-			gX := mX - rW - gOffsetX
-		}
-	}
-	;############################################################################
-	; y-axis
-	if (yDir = 0) {
-		; if moving dn and win hits bot edge, flip Gui above mouse pointer
-		if (mY + gOffsetY + rH > minY + maxH) {
-			gY := mY - rH - gOffsetY, yDir := 1
-		} else {
-			gY := mY + gOffsetY
-		}
-	} else { ; yDir = 1
-		; only flip below mouse pointer when Gui reaches top edge
-		if (mY - rH - gOffsetY < minY) {
-			gY := mY + gOffsetY, yDir := 0
-		} else {
-			gY := mY - rH - gOffsetY
-		}
-	}
-	;############################################################################
-	; safety overrides to prev gui clipping under taskbars/edges
-	if (gX < minX)
-		gX := minX
-	if (gY < minY)
-		gY := minY
-	if (gX + rW > minX + maxW)
-		gX := (minX + maxW) - rW
-	if (gY + rH > minY + maxH)
-		gY := (minY + maxH) - rH
-
-	WinMove(gX,gY,,,gGui.Hwnd)
+																  guiSplashShow()				; shows splash screen using animation
+;################################################################################
+{
+	clsSplash()
 }
 ;################################################################################
-resizeGui(delta) {
-	global gRCPxCnt, gWidth, gHeight
-	h		:= getHeights()
-	NewSize	:= (!isSizeOk()) ? gDefPxCnt													; resize to default value if too-big
-			: ((delta < 1 || h.curH + delta < h.maxH) ? gRCPxCnt + delta : 0)				; prevent enlargement if at max size
-	if (NewSize < 100)																		; prevent text font from being clipped
-		return
-	getLgclTextH(), gWidth := gRCPxCnt := NewSize, gHeight := gRCPxCnt + gLgclTextH
-	updateGridImage(), gGui.Move(,,gWidth,gHeight)
-	txtValues.Move(gBdrGap, gRCPxCnt, gWidth - gBdrGap*2, gLgclTextH - gBdrGap)
-	IniWrite(gRCPxCnt, gINIFile, 'Settings', 'RCPxCount')
-}
+											   guiWinFade(guiObj, mode, dur:=300)				; animates win entrance/departure
 ;################################################################################
-updateText(x,y,clrs) {																		; updates text area of display
-	xyStr			:= Format('XY {},{}', x, y)												; XY coords  of target pixel
-	rgbStr			:= Format('RGB {},{},{}', clrs.r, clrs.g, clrs.b)						; RGB colors of target pixel
-	rawHex			:= Format('{:02X}{:02X}{:02X}', clrs.r, clrs.g, clrs.b)					; hex colors of target pixel
-	hexStr			:= 'HEX ' rawHex														; hex string for display
-	txtValues.Value	:= xyStr '`n' rgbStr '`n' hexStr										; update text control
-	txtValues.Opt('Background' rawHex ' c' clrs.txtFrmClr)									; set font color and display target color
-}
-;################################################################################
-updateGridImage() {																			; update mem buffer for grid
-	global ghGuiDC, ghMGuiDC, ghMemBM, ghOldBM
-	gRCPxScl:= Round(scaled(gRCPxCnt))
-	DllCall('ReleaseDC', 'Ptr', gGui.Hwnd, 'Ptr', ghGuiDC)
-	ghGuiDC	:= DllCall('GetDC', 'Ptr', gGui.Hwnd, 'Ptr')
-	DllCall('SelectObject', 'Ptr', ghMGuiDC, 'Ptr', ghOldBM, 'Ptr')
-	DllCall('DeleteObject', 'Ptr', ghMemBM)
-	ghMemBM := DllCall('CreateCompatibleBitmap', 'Ptr', ghGuiDC
-			, 'Int', gRCPxScl, 'Int', gRCPxScl, 'Ptr')
-	ghOldBM := DllCall('SelectObject', 'Ptr', ghMGuiDC, 'Ptr', ghMemBM, 'Ptr')
-}
-;################################################################################
-; splits targ color into rgb, calcs best colors for cross-hairs, text, frames
-getColors(targClr) {
-	r			:=  targClr			& 0xFF													; extract red   component
-	g			:= (targClr >> 8)	& 0xFF													; extract green component
-	b			:= (targClr >> 16)	& 0xFF													; extract blue  component
-	luminance	:= calcLum(r,g,b)															; calc luminance value
-	;ToolTip("luminance := " luminance)														; TEMP DEBUG
-	txtFrmClr	:= (luminance > 145) ? '000000' : 'FFFFFF'									; set text frame and font color for best contrast
-	xHairClr	:= 0x808080																	; cross-hairs are mid gray by default
-	if (isMidGray(r,g,b))																	; if target color is mid gray...
-		xHairClr:= (luminance > 128) ? 0x000000 : 0xFFFFFF									; ... adj cross-hair color for best contrast
-	return {r:r,g:g,b:b,xHairClr:xHairClr,txtFrmClr:txtFrmClr}								; return values in obj
-}
-;################################################################################
-; returns whether rgb values are within mid gray range
-isMidGray(r,g,b) {
-	lv:=100, hv:=156																		; luminosity range considered medium gray
-	return (r>=lv && r<=hv && g>=lv && g<=hv && b>=lv && b<=hv)
-}
-;################################################################################
-calcLum(r,g,b) {																			; calculate general luminosity level of rgb
-	return (0.299 * r) + (0.587 * g) + (0.114 * b)
-}
-;################################################################################
-HL_GuiFrame() {																				; draws white and black frame around gui
-	WinGetClientPos(&x, &y, &w, &h, gGui.Hwnd)												; provides SCALED values for gui
-	; create white, black brushes
-	hBrushW	:= DllCall('CreateSolidBrush', 'UInt', 0xFFFFFF, 'Ptr')							; white brush
-	hBrushB	:= DllCall('CreateSolidBrush', 'UInt', 0x000000, 'Ptr')							; black brush
-	; draw white frame around entire gui
-	hDC		:= DllCall('GetDC', 'Ptr', gGui.Hwnd, 'Ptr')									; get DC for full Gui
-	rectW	:= Buffer(16, 0)																; rectangle struct
-	NumPut('Int', 0, 'Int', 0, 'Int', w, 'Int', h, rectW)									; place coords in rect struct
-	DllCall('FrameRect', 'Ptr', hDC, 'Ptr', rectW, 'Ptr', hBrushW)							; draw white frame to gui DC
-	; draw white frame inside just grid area
-	rectW	:= Buffer(16, 0)																; rectangle struct
-	NumPut('Int', 0, 'Int', 0, 'Int', gRCPxScl, 'Int', gRCPxScl, rectW)						; place coords in rect struct
-	DllCall('FrameRect', 'Ptr', ghMGuiDC, 'Ptr', rectW, 'Ptr', hBrushW)						; draw white frame around grid area
-	; draw black frame inside white frame of grid area
-	rectB := Buffer(16, 0)																	; rectangle struct
-	NumPut('Int', 1, 'Int', 1, 'Int', gRCPxScl-1, 'Int', gRCPxScl-1, rectB)					; place coords in rect struct
-	DllCall('FrameRect', 'Ptr', ghMGuiDC, 'Ptr', rectB, 'Ptr', hBrushB)						; draw black frame around grid area
-	; cleanup resources
-	DllCall('DeleteObject', 'Ptr', hBrushW)
-	DllCall('DeleteObject', 'Ptr', hBrushB)
-}
-;################################################################################
-HL_CtrPixel(cStart, cEnd) {																	; draws highlight box to center of grid canvas
-	; create white, black brushes
-	hBrushW	:= DllCall('CreateSolidBrush', 'UInt', 0xFFFFFF, 'Ptr')
-	hBrushB := DllCall('CreateSolidBrush', 'UInt', 0x000000, 'Ptr')
-	; draw white square in center of grid
-	rectW := Buffer(16, 0)
-	NumPut('Int', cStart, 'Int', cStart, 'Int', cEnd + 1, 'Int', cEnd + 1, rectW)
-	DllCall('FrameRect', 'Ptr', ghMGuiDC, 'Ptr', rectW, 'Ptr', hBrushW)
-	;draw black square in center of grid
-	rectB := Buffer(16, 0)
-	NumPut('Int', cStart + 1, 'Int', cStart + 1, 'Int', cEnd, 'Int', cEnd, rectB)
-	DllCall('FrameRect', 'Ptr', ghMGuiDC, 'Ptr', rectB, 'Ptr', hBrushB)
-	; cleanup resources
-	DllCall('DeleteObject', 'Ptr', hBrushW)
-	DllCall('DeleteObject', 'Ptr', hBrushB)
-}
-;################################################################################
-drawCrossHairs(color, cStart, cEnd) {														; draws cross hairs to grid canvas
-	hPen	:= DllCall('CreatePen', 'Int', 0, 'Int', 1, 'UInt', color, 'Ptr')
-	hOldPen	:= DllCall('SelectObject', 'Ptr', ghMGuiDC, 'Ptr', hPen, 'Ptr')
-	DllCall('MoveToEx', 'Ptr', ghMGuiDC, 'Int', 0, 'Int', cStart, 'Ptr', 0)
-	DllCall('LineTo', 'Ptr', ghMGuiDC, 'Int', gRCPxScl, 'Int', cStart)
-	DllCall('MoveToEx', 'Ptr', ghMGuiDC, 'Int', 0, 'Int', cEnd, 'Ptr', 0)
-	DllCall('LineTo', 'Ptr', ghMGuiDC, 'Int', gRCPxScl, 'Int', cEnd)
-	DllCall('MoveToEx', 'Ptr', ghMGuiDC, 'Int', cStart, 'Int', 0, 'Ptr', 0)
-	DllCall('LineTo', 'Ptr', ghMGuiDC, 'Int', cStart, 'Int', gRCPxScl)
-	DllCall('MoveToEx', 'Ptr', ghMGuiDC, 'Int', cEnd, 'Int', 0, 'Ptr', 0)
-	DllCall('LineTo', 'Ptr', ghMGuiDC, 'Int', cEnd, 'Int', gRCPxScl)
-	DllCall('SelectObject', 'Ptr', ghMGuiDC, 'Ptr', hOldPen)
-	DllCall('DeleteObject', 'Ptr', hPen)
-}
-;################################################################################
-isSizeOk() {																				; helps prevent flip-flop repositioning of gui
-	h := getHeights()
-	return	h.curH < h.maxH
-}
-;################################################################################
-getHeights() {																				; returns cur height of gui max height allowed
-	padding	:= 0
-	maxH	:= floor((A_ScreenHeight/2)-(gOffsetY/2)-padding)
-	curH	:= Round(scaled(gHeight) + gOffsetY)
-	return	{curH:curH,maxH:maxH}
-}
-;################################################################################
-zoomIn() {																					; increases magnification
-	global gRCSqCnt
-	if (gRCSqCnt > gRCSqMin)
-		gRCSqCnt -= 2, IniWrite(gRCSqCnt, gINIFile, 'Settings', 'RCSqCount')
-}
-;################################################################################
-zoomOut() {																					; decreases magnification
-	global gRCSqCnt
-	if (gRCSqCnt < gRCSqMax)
-		gRCSqCnt += 2, IniWrite(gRCSqCnt, gINIFile, 'Settings', 'RCSqCount')
-}
-;################################################################################
-copyToClip(hk) {																			; very basic copy of details to clipboard
-	A_Clipboard := extractInfo(txtValues.value, hk)
-	SoundBeep(1000,50), txtValues.Opt('Background00FF00 c000000')
-	SetTimer(() => txtValues.Opt('Background000000 cFFFFFF'), -150)
-}
-;################################################################################
-extractInfo(info,key) {																		; used to extract particular details from full info
-	line := StrSplit(info, '`n', '`r')
-	if (key = '!h')
-		return RegExReplace(line[3], '.+(\w{2}):(\w{2}):(\w{2})$', '$1$2$3')
-	return info
-}
-;################################################################################
-showSplash(vers) {
-	splash := Gui('-Caption +AlwaysOnTop +ToolWindow +Border')
-	splash.BackColor := '202020'
-	; build cube using txt boxes
-	sSize := scaled(200), pad := scaled(20), boxSize := scaled(50)
-	targetX1:= pad + boxSize, targetY1:= pad + boxSize
-	targetX2:= targetX1 + boxSize, targetY2:= targetY1 + boxSize
-	cRed	:= 'FF0000', cGreen	  := '00FF00', cBlue   := '0000FF'
-	cOrange := 'FF8000', cWhite	  := 'FFFFFF', cPurple := '8800FF'
-	cYellow := 'FFFF00', cMagenta := 'FF00FF', cCyan   := '00FFFF'
-	; top row
-	splash.Add('Text', Format('x{} y{} w{} h{} Background{}'
-	, pad, pad, boxSize, boxSize, cRed))
-	splash.Add('Text', Format('x{} y{} w{} h{} Background{}'
-	, pad + boxSize, pad, boxSize, boxSize, cGreen))
-	splash.Add('Text', Format('x{} y{} w{} h{} Background{}'
-	, pad + boxSize * 2, pad, boxSize, boxSize, cBlue))
-	; middle row
-	splash.Add('Text', Format('x{} y{} w{} h{} Background{}'
-	, pad, pad + boxSize, boxSize, boxSize, cOrange))
-	splash.Add('Text', Format('x{} y{} w{} h{} Background{}'
-	, targetX1, targetY1, boxSize, boxSize, cWhite))
-	splash.Add('Text', Format('x{} y{} w{} h{} Background{}'
-	, pad + boxSize * 2, pad + boxSize, boxSize, boxSize, cPurple))
-	; bottom row
-	splash.Add('Text', Format('x{} y{} w{} h{} Background{}'
-	, pad, pad + boxSize * 2, boxSize, boxSize, cYellow))
-	splash.Add('Text', Format('x{} y{} w{} h{} Background{}'
-	, pad + boxSize, pad + boxSize * 2, boxSize, boxSize, cMagenta))
-	splash.Add('Text', Format('x{} y{} w{} h{} Background{}'
-	, pad + boxSize * 2, pad + boxSize * 2, boxSize, boxSize, cCyan))
-	; add title text
-	splash.SetFont('s10 cWhite Bold', 'Segoe UI')
-	splash.Add('Text', Format('x{} y{} w{} right'
-	, pad, pad + boxSize * 3 + 10, boxSize *3), 'HUE-HACKER')
-	splash.SetFont('s8 c0X777777', 'Segoe UI')
-	splash.Add('Text', Format('x{} y{} w{} right'
-	, pad, pad + boxSize * 3 + 30, boxSize *3), vers)
-	; fade in cube gui
-	splash.Show(Format('hide w{} h{}', sSize + pad * 2, sSize + pad * 2 + 20))
-	winAnimateFade(splash, 1, duration := 1000)												; animate entrance
-	; then blast the cross-hair on top
-	drawReticle(splash.Hwnd, targetX1, targetY1, targetX2, targetY2)
-	Sleep(1700), winAnimateFade(splash, 2, duration := 1500)								; animate exit
-	;DllCall('AnimateWindow', 'Ptr', splash.Hwnd, 'Int', 300, 'UInt', 0x00090000)
-	splash.Destroy()
-}
-;################################################################################
-drawReticle(hwnd, tX1, tY1, tX2, tY2) {														; draw the cross-hair on splash screen
-	hdc := DllCall('GetDC', 'Ptr', hwnd, 'Ptr')
-	; grab gui cube dimensions
-	rect := Buffer(16, 0)
-	DllCall('GetClientRect', 'Ptr', hwnd, 'Ptr', rect)
-	w := NumGet(rect, 8, 'Int'), h := NumGet(rect, 12, 'Int')
-	; use double buffer to keep the cross-hair rendering instant
-	hdcMem	:= DllCall('CreateCompatibleDC', 'Ptr', hdc, 'Ptr')
-	hBitmap	:= DllCall('CreateCompatibleBitmap', 'Ptr', hdc, 'Int', w, 'Int', h, 'Ptr')
-	oldBmp	:= DllCall('SelectObject', 'Ptr', hdcMem, 'Ptr', hBitmap, 'Ptr')
-	; place the gui image into this buffer
-	DllCall('BitBlt', 'Ptr', hdcMem, 'Int', 0, 'Int', 0, 'Int', w, 'Int', h
-		, 'Ptr', hdc, 'Int', 0, 'Int', 0, 'UInt', 0x00CC0020)
-	; high-contrast drawing pens for cross-hair
-	hBlackPen := DllCall('CreatePen', 'Int', 0, 'Int', 4, 'UInt', 0x000000, 'Ptr')
-	hWhitePen := DllCall('CreatePen', 'Int', 0, 'Int', 2, 'UInt', 0xFFFFFF, 'Ptr')
-	; cross-hair position
-	midX := tX1 + ((tX2 - tX1) / 2), midY := tY1 + ((tY2 - tY1) / 2), ext := 12				; centered cross-hair
-	midX := scaled(midX), midY := scaled(midY), ext := scaled(ext)							; ensure cross-hair pos is adj for scaling
-	midX *= .88, midY *= .88																; OPTIONAL - include dynamic offset
-	; paint cross-hair over the cube
-	Loop 2 {
-		currentPen := (A_Index == 1) ? hBlackPen : hWhitePen
-		oldObj := DllCall('SelectObject', 'Ptr', hdcMem, 'Ptr', currentPen, 'Ptr')
-		DllCall('MoveToEx', 'Ptr', hdcMem, 'Int', midX - ext, 'Int', midY, 'Ptr', 0)
-		DllCall('LineTo', 'Ptr', hdcMem, 'Int', midX - 2, 'Int', midY)
-		DllCall('MoveToEx', 'Ptr', hdcMem, 'Int', midX + 2,'Int', midY, 'Ptr', 0)
-		DllCall('LineTo', 'Ptr', hdcMem, 'Int', midX + ext, 'Int', midY)
-		DllCall('MoveToEx', 'Ptr', hdcMem, 'Int', midX, 'Int', midY - ext, 'Ptr', 0)
-		DllCall('LineTo', 'Ptr', hdcMem, 'Int', midX, 'Int', midY - 2)
-		DllCall('MoveToEx', 'Ptr', hdcMem, 'Int', midX, 'Int', midY + 2,'Ptr', 0)
-		DllCall('LineTo', 'Ptr', hdcMem, 'Int', midX, 'Int', midY + ext)
-		DllCall('SelectObject', 'Ptr', hdcMem, 'Ptr', oldObj, 'Ptr')
-	}
-	; blast the combined images to screen in one shot
-	DllCall('BitBlt', 'Ptr', hdc, 'Int', 0, 'Int', 0, 'Int', w, 'Int', h
-		, 'Ptr', hdcMem, 'Int', 0, 'Int', 0, 'UInt', 0x00CC0020)
-	; clean up
-	DllCall('DeleteObject', 'Ptr', hBlackPen)
-	DllCall('DeleteObject', 'Ptr', hWhitePen)
-	DllCall('SelectObject', 'Ptr', hdcMem, 'Ptr', oldBmp, 'Ptr')
-	DllCall('DeleteObject', 'Ptr', hBitmap)
-	DllCall('DeleteDC', 'Ptr', hdcMem)
-	DllCall('ReleaseDC', 'Ptr', hwnd, 'Ptr', hdc)
-}
-;################################################################################
-; mode: entrance := 1, depart := 2 or 'out'
-winAnimateFade(guiObj, mode, dur:=300) {													; animates win entrance or departure
+{
 	static AW_BLEND := 0x80000, AW_HIDE := 0x10000
-	if (!guiObj.Hwnd)																		; ensure the window handle (HWND) is fully initialized
-		return false
-	flags := AW_BLEND																		; set the flag base to blend/fade
+	try
+		hwnd := guiObj.hwnd																		; ensure gui is valid
+	catch
+		return
+	flags := AW_BLEND																			; set the flag base to blend/fade
 	if (mode=2 || InStr(mode,'out'))
-		flags |= AW_HIDE																	; if fading out, add the hide flag
-	return DllCall('AnimateWindow', 'Ptr', guiObj.Hwnd
-		, 'Int', dur, 'UInt', flags, 'Int')
+		flags |= AW_HIDE																		; if fading out, add the hide flag
+	return DllCall('AnimateWindow', 'Ptr',hwnd, 'Int',dur, 'UInt',flags, 'Int')
 }
 ;################################################################################
-showHKTable(hkList, title := '', winX:='',winY:='') {
-	global chkHK
-	; ini dark gUI
-	hkGui := Gui('-Caption +ToolWindow +AlwaysOnTop +border')
-	hkGui.BackColor := '202020', hkGui.name := 'hkGui'
-	OnMessage(0x0201, WM_LBUTTONDOWN)														; enable click/drag anywhere in HK gui
-	; set style vars
-	fontName := 'Segoe UI', textColor := 'cE0E0E0', accentColor := 'c6495ED'
-	; list header
-	t := 'Shortcuts' . ((title) ? ' for ' title : '')
-	hkGui.SetFont('s12 w700 ' textColor, fontName)
-	hkGui.Add('Text', 'x20 y15 w210 h30', t)
-	hkGui.SetFont('s7 ' textColor, fontName)
-	chkHK := hkGui.Add('Checkbox', 'vchkHK x240 y25 w115 right', 'Show at launch')
-	chkHK.value := gShowHKs, chkHK.OnEvent('Click',evCtrl)									; enable/disable showing HK list at launch
-	; div line
-	hkGui.Add('Text', 'x20 y48 w390 h2 Background333333')
-	; add hk list
-	cY := 60
-	for idx, kv in hkList {
-		ss := StrSplit(kv,':'), key := ss[1], desc := ss[2]
-		cY += (A_Index>1) ? 25 : 0
-		hkGui.SetFont('s9 w600 ' accentColor, 'Consolas')									; HK font
-		hkGui.Add('Text', 'x20 y' cY ' w190 h19', '  ' key)									; HK trigger
-		hkGui.SetFont('s9 w400 ' textColor, fontName)										; desc font
-		hkGui.Add('Text', 'center x220 y' cY ' w190 h19', desc)								; desc
-	}
-	; show window with custom placement
-	winX := (winX!='') ? winX : gHKListX
-	winX := (winX='')  ? ''   : ' x' winX
-	winY := (winY!='') ? winY : gHKListY
-	winY := (winY='')  ? ''   : ' y' winY
-	w := 430, h := cY+35																	; adj height dynamically
-	hkGui.Title := 'HHHKLIST'																; used as detection flag for escape key
-	hkGui.Show('hide ' winX winY ' w' w ' h' h)												; hide splash gui initially, for animation
-	winAnimateFade(hkGui, 1, 750)															; animate entrance
-	hkGui.Show(winX winY ' w' w ' h' h)														; now make it permanent
-	return hkGui																			; will need access for closing
+																	scaled(value)				; applies scaling to passed setting
+;################################################################################
+{
+	return value * getScale()
 }
 ;################################################################################
-; allows user to move HK gui if desired
-WM_LBUTTONDOWN(wParam, lParam, msg, hwnd) {
-	if (WinGetTitle(hwnd) = 'HHHKLIST')
-		PostMessage(0xA1,2,,,hwnd)
+										 WM_DPICHANGED(wParam, lParam, msg, hwnd)				; allows gui to detect dpi changes on the fly, which initiates a script reload
+;################################################################################
+{
+	dpi := (wParam >> 16) & 0xFFFF																; wParam HIWORD - new Y-axis DPI
+	cfg.Save('Reloaded',1), cfg.Disable(), cfg.SaveToDisk()										; set reload flag, save setting
+	Sleep(500), Reload()																		; reload script to use new scaling
 }
 ;################################################################################
-evCtrl(ctrl,*) {
-	if (ctrl.name = 'chkHK') {
-		val := ctrl.Value
-		IniWrite(val,gINIFile,'Settings','ShowHKs')
-		global gShowHKs := val
+										WM_LBUTTONDOWN(wParam, lParam, msg, hwnd){				; allows user to move HK gui if desired
+;################################################################################
+
+	if (WinGetTitle(hwnd) = 'HHHKLIST') {														; if user moving HKList...
+		PostMessage(0xA1,2,,,hwnd)																; ... allow click/move anywhere in window
+		KeyWait("LButton")																		; ... wait for user to release left mouse button
+		gHKGui.SavePos()																		; ... save new win pos
 	}
 }
+;#################################  SHORTCUTS  ##################################
 ;################################################################################
-closeHKList() {
-	if (!win := WinExist('HHHKLIST'))														; if HK list gui not found...
-		return																				; ... avoid error
-	; save current window position
-	gHKGui.GetPos(&x,&y)																	; get current win position on screen
-	global gHKListX := x, gHKListY := y														; save position locally
-	IniWrite(x, gINIFile, 'Settings', 'HkListX')											; save x pos to ini
-	IniWrite(y, gINIFile, 'Settings', 'HkListY')											; save y pos to ini
-	winAnimateFade(gHKGui, 2, 750)															; win should be gHKGui (animate fade)
-	gHKGui.destroy()																		; get rid of it, will create again if needed
-}
-;################################################################################
-#HotIf			(gInitialized && gIsToolActive)												; hotkeys only work when tool is active
+#HotIf			(gInitialized && gGui.IsActive)													; hotkeys only work when tool is active
 +Up::
 +Right::
-+WheelUp::		resizeGui(10)
++WheelUp::			gGui.Resize(10)
 +Down::
 +Left::
-+WheelDown::	resizeGui(-10)
++WheelDown::		gGui.Resize(-10)
 ^Up::
-^WheelUp::		zoomIn()
+^WheelUp::			gGui.zoomIn()
 ^Down::
-^WheelDown::	zoomOut()
+^WheelDown::		gGui.zoomOut()
 ~WheelUp::
-~WheelDown::	updateGrid(1)																; detect normal scrolling operation
-Up::			MouseMove(0, -1, 0, 'R')
-Down::			MouseMove(0, 1, 0, 'R')
-Left::			MouseMove(-1, 0, 0, 'R')
-Right::			MouseMove(1, 0, 0, 'R')
+~WheelDown::
+~LButton::
+~RButton::			guiForceUpdate(1)															; forces update for mouse clicks/scrolling
+Up::				MouseMove(0, -1, 0, 'R')
+Down::				MouseMove(0, 1, 0, 'R')
+Left::				MouseMove(-1, 0, 0, 'R')
+Right::				MouseMove(1, 0, 0, 'R')
 !h::
-!c::			copyToClip(A_ThisHotkey)
-#HotIf			(gInitialized&&!WinActive('ahk_class #32770')&&!WinActive('HHHKLIST'))		; do not show HK list if currently displayed
-!s::			showHKList()
-#HotIf			(gInitialized)																; hotkeys that work whether tool is active or not
-~Esc::			closeHKList()																; close HK list if open
-^Esc::			cleanup(),ExitApp()															; quit app
-F8::			toggleActive()
+!c::				gGui.CopyToClip(A_ThisHotkey)
+#HotIf			(gInitialized&&!WinActive('ahk_class #32770')&&!WinActive('HHHKLIST'))			; do not show HK list if currently displayed
+!s::				guiHKListShow()
+#HotIf			(gInitialized)																	; hotkeys that work whether tool is active or not
+~Esc::				guiHKListHide()																; close HK list if open
+^Esc::				AppClose()																	; quit app
+F8::			gGui.ToggleActive()																; show/hide grid gui
 #HotIf
 
