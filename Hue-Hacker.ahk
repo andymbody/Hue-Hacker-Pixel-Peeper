@@ -8,11 +8,11 @@
 #Requires AutoHotkey v2.0
 #SingleInstance Force
 CoordMode('Mouse', 'Screen'), CoordMode('Pixel', 'Screen')
-gAppVers := '26-06-26.133'
+gAppVers := '26-06-26.200'
 AppIni()																						; initialize application
 ;################################################################################
 AppClose() {
-	cfg.Disable(), gGui.GdiCleanup(), ExitApp()
+	gGui.GdiCleanup(), cfg.CancelSave(), cfg.SaveToDisk(), ExitApp()							; force save any pending config data, quit app
 }
 ;################################################################################
 AppIni() {
@@ -20,10 +20,12 @@ AppIni() {
 	gInitialized := 0																			; disable hotkeys
 		getScale()																				; grab dpi scaling from system
 		cfg := clsSettings()																	; grab setting from ini file
-		TraySetIcon('HueHacker.ico')															; set tray icon
+		try TraySetIcon('HueHacker.ico')														; set tray icon
 		(!cfg.Grab('Reloaded')) && guiSplashShow()												; show animated splash screen (unless reloading)
 		DllCall('SetThreadDpiAwarenessContext', 'ptr', -4, 'ptr')								; needs to be before Gui ini
-		gGui := clsGrid('+AlwaysOnTop -Caption +ToolWindow +E0x20')								; initialize grid gui using custom Gui class
+		gGui := clsGrid()																		; initialize grid gui using custom Gui class
+		DllCall('RegisterShellHookWindow', 'Ptr', gGui.Hwnd)									; setup win hook
+		OnMessage(DllCall('RegisterWindowMessage', 'Str', 'SHELLHOOK'), shellMessage)			; setup notification for active win changes
 		if (cfg.Grab('Reloaded'))																; if script is being reloaded...
 			cfg.Save('Reloaded',0), gGui.ShowGui()												; ... reset reload flag and show grid gui
 		(cfg.Grab('ShowHKs')) && guiHKListShow()												; show shortcuts list (if enabled)
@@ -34,24 +36,14 @@ AppIni() {
 ; provides much better performance than using standard ahk IniRead/Write
 class clsSettings
 {
-	_svd			:= ObjBindMethod(this, '_saveToDisk')										; required to use method with SetTimer
+	_svd			:= ObjBindMethod(this, 'SaveToDisk')										; required to use method with SetTimer
 	_cache			:= Map()																	; settings Map
 	_toDisk			:= 0																		; flag to signal that changes have not been saved to disk yet
 	_iniFile		:= A_ScriptDir '\HueHacker.ini'												; ini file to write to
 	;_iniFile		:= 'E:' '\HueHacker.ini'			; thumb-drive for testing				; ini file to write to
-	SaveToDisk()	=> this._saveToDisk()														; allow app to force "write-to-disk"
-	Disable()		=> this.Enable(0)															; convenience
 	;############################################################################
 	__New() {																					; allows auto ini of settings for Static class
-		this._getINI(), this.Enable()															; perform these automatically, rather than using multiple static calls
-	}
-	;############################################################################
-	Enable(dur := 5000) {							; can be called publicly					; enable/disable write-to-disk
-		static durMin := 5000																	; min should not be less that 5 secs
-		dur := (dur) ? dur : 0																	; enable or disable ?
-		dur := (dur && abs(dur) < durMin) ? durMin : dur										; make sure dur is not less than 5 secs
-		SetTimer(this._svd, dur)																; enable/disable timer
-		(!dur && this._toDisk) && this._saveToDisk()											; force write to disk if disabled, and settings have not been saved
+		this._getINI()																			; perform these automatically, rather than using multiple static calls
 	}
 	;############################################################################
 	; add adjustable user settings here as needed
@@ -63,6 +55,10 @@ class clsSettings
 		this._cache['HKListY' ] := ''															; custom Y position for HK list
 		this._cache['RCSqCnt' ] := ''															; GRID  square count for grid single row/col (zoom factor)
 		this._cache['RCPxCnt' ] := ''															; SCREEN pixel count for grid single row/col (win size)
+	}
+	;############################################################################
+	CancelSave() {																				; prevents pending ini write
+		SetTimer(this._svd, 0)																	; cancel pending ini writes
 	}
 	;############################################################################
 	_getINI() {																					; get initial INI settings, from file if possible
@@ -87,12 +83,18 @@ class clsSettings
 		return ''																				; otherwise use empty string as return val
 	}
 	;############################################################################
-	Save(key,val) {														; Public				; saves setting to map, flags need to write to disk
+	Save(key,val,toIni:=1) {														; Public				; saves setting to map, flags need to write to disk
 		prevVal := ''																			; val to return if key has no previous value
 		if (this._cache.Has(key))																; if key is found...
 			prevVal := this._cache[key]															; ... record previous value
-		if (prevVal != val)																		; if new value does not match prev value...
-			this._cache[key] := val, this._toDisk := 1											; update new value, flag for "write-to-disk"
+		if (prevVal != val) {																	; if new value does not match prev value...
+			this._cache[key] := val
+			if (toIni) {																		; if setting should be written to ini file...
+				this._toDisk := 1, SetTimer(this._svd, -3000)									; ... prep for delayed ini write
+			} else {																			; otherwise...
+				this._toDisk := 0, this.CancelSave()											; ... cancel/prevent ini write (will be done manually)
+			}
+		}
 		return prevVal																			; return previous value to caller
 	}
 	;############################################################################
@@ -105,8 +107,8 @@ class clsSettings
 		}
 	}
 	;############################################################################
-	_saveToDisk() {																				; saves all settings to disk, if any have changed
-		if (!this._toDisk)																		; if no settings have changed...
+	SaveToDisk(force:=0) {																		; saves all settings to disk, if any have changed
+		if (!force && !this._toDisk)															; if no settings have changed...
 			return																				; ... no need to save to disk
 		this._toDisk := 0																		; reset flag first to prevent double-dipping
 		saveStr		 := ''																		; ini output str
@@ -137,8 +139,8 @@ class clsGrid extends Gui
 	clrInfo		:= unset																		; all color info
 	BdrGap		:= 1																			; gui frame thickness
 	;############################################################################
-	__New(opts:='') {
-		super.__new(opts)																		; use papa
+	__New() {
+		super.__new('+AlwaysOnTop -Caption +ToolWindow +E0x20')									; pass options to papa
 		global ghGrid := this.hwnd																; use global var for performance reasons
 		this._customIni()																		; custom ini for gui
 	}
@@ -161,7 +163,7 @@ class clsGrid extends Gui
 					, this.BdrGap, this.RCPxCnt
 					, this.PxW-this.BdrGap*2, this.TxtCtrlH-this.BdrGap))
 		this._gdiIni()																			; grid canvas, for drawing
-		this.GridUpdateCB := ObjBindMethod(this, 'UpdateGrid')									; must have to use method for SetTimer
+		this.GridUpdateCB := ObjBindMethod(this, 'UpdateGrid')									; required to use method for SetTimer
 		OnMessage(0x02E0, WM_DPICHANGED)														; gui detects dpi scaling changes (must follow Gui ini)
 		OnMessage(0x0014, guiPreventBkgdErase)													; prevent ugly flash when resizing gui
 	}
@@ -199,25 +201,20 @@ class clsGrid extends Gui
 	;############################################################################
 	_gdiIni() {																					; ini drawing surfaces
 		global ghGuiDC, ghMGuiDC, ghMemBM, ghOldBM												; global vars help improve performance
-		ghGuiDC	 := DllCall('GetDC', 'Ptr', ghGrid, 'Ptr')										; device context for Gui (grid)
-		ghMGuiDC := DllCall('CreateCompatibleDC', 'Ptr', ghGuiDC, 'Ptr')						; device context for scratchpad
-		ghMemBM	 := DllCall('CreateCompatibleBitmap', 'Ptr', ghGuiDC							; canvas associated with gui window
-					, 'Int', this.RCPxScl, 'Int', this.RCPxScl, 'Ptr')
-		ghOldBM	 := DllCall('SelectObject', 'Ptr', ghMGuiDC										; scratchpad canvas
-					, 'Ptr', ghMemBM, 'Ptr')
+		ghGuiDC := 0, ghMGuiDC := 0, ghMemBM := 0, ghOldBM := 0									; ini
+		this._gdiUpdate()																		; let _gdiUpdate handle the rest
 	}
 	;############################################################################
-	_gdiUpdate() {																				; update canvas for grid
-		global ghGuiDC, ghMGuiDC, ghMemBM, ghOldBM												; global vars help improve performance
+	_gdiUpdate() {                                                                              ; update canvas for grid
+		global ghGuiDC, ghMGuiDC, ghMemBM, ghOldBM                                              ; global vars help improve performance
 		RCPxScl := this.RCPxScl
-		DllCall('ReleaseDC', 'Ptr', ghGrid, 'Ptr', ghGuiDC)
-		ghGuiDC	:= DllCall('GetDC', 'Ptr', ghGrid, 'Ptr')
-		DllCall('SelectObject', 'Ptr', ghMGuiDC, 'Ptr', ghOldBM, 'Ptr')
-		DllCall('DeleteObject', 'Ptr', ghMemBM)
-		ghMemBM := DllCall('CreateCompatibleBitmap', 'Ptr', ghGuiDC
+		this.GdiCleanup()																		; cleanup previous allocations first
+		; fresh sizing matrix
+		ghGuiDC  := DllCall('GetDC', 'Ptr', ghGrid, 'Ptr')
+		ghMGuiDC := DllCall('CreateCompatibleDC', 'Ptr', ghGuiDC, 'Ptr')
+		ghMemBM  := DllCall('CreateCompatibleBitmap', 'Ptr', ghGuiDC
 					, 'Int', RCPxScl, 'Int', RCPxScl, 'Ptr')
-		ghOldBM := DllCall('SelectObject', 'Ptr', ghMGuiDC
-					, 'Ptr', ghMemBM, 'Ptr')
+		ghOldBM  := DllCall('SelectObject', 'Ptr', ghMGuiDC, 'Ptr', ghMemBM, 'Ptr')
 	}
 	;############################################################################
 	GdiCleanup() {																				; release gdi resources
@@ -293,6 +290,7 @@ class clsGrid extends Gui
 		; cleanup resources
 		DllCall('DeleteObject', 'Ptr', hBrushW)
 		DllCall('DeleteObject', 'Ptr', hBrushB)
+		DllCall('ReleaseDC', 'Ptr', ghGrid, 'Ptr', hDC)
 	}
 	;############################################################################
 	_isSizeOk() {																				; helps prevent rapid flip-flop repositioning of gui
@@ -305,8 +303,7 @@ class clsGrid extends Gui
 		MouseGetPos(&mX, &mY)																	; get current mouse position
 		if (lastX!=mX || lastY!=mY																; if mouse moved...
 		|| lastRCPxCnt!=this.RCPxCnt															; ... OR grid win size changed...
-		|| lastRCSqCnt!=this.RCSqCnt															; ... OR grid magnification changed...
-		|| this._activeWinChanged()) {															; ... OR active window changed...
+		|| lastRCSqCnt!=this.RCSqCnt) {															; ... OR grid magnification changed...
 			lastX:=mx,lastY:=mY,lastRCPxCnt:=this.RCPxCnt,lastRCSqCnt:=this.RCSqCnt				; ...	save values for comparison next visit
 			return true																			; ...	notify caller that changes occurred
 		}
@@ -685,11 +682,14 @@ class clsSplash extends Gui
 																	   getScale()				; compensates for screen scaling
 ;################################################################################
 {
-	hDC := DllCall('GetDC', 'Ptr', 0, 'Ptr')
-	dpi := DllCall('GetDeviceCaps', 'Ptr', hDC, 'Int', 88, 'Int')
-	DllCall('ReleaseDC', 'Ptr', 0, 'Ptr')
-	global gScale := dpi / 96
-	return gScale
+	global gScale
+	if (!IsSet(gScale)) {																		; if scale has not been inspected yet...
+		hDC := DllCall('GetDC', 'Ptr', 0, 'Ptr')
+		dpi := DllCall('GetDeviceCaps', 'Ptr', hDC, 'Int', 88, 'Int')
+		DllCall('ReleaseDC', 'Ptr', 0, 'Ptr', hDC)
+		gScale := dpi / 96																		; ... save scale to global var
+	}
+	return gScale																				; return to caller, in case needed
 }
 ;################################################################################
 														 guiForceUpdate(reset:=0)				; forces a grid update for 2 secs
@@ -699,12 +699,12 @@ class clsSplash extends Gui
 	start := 0
 	if (reset)
 		start := (c=0), c := 0																	; determine whether timer needs started
-	if (++c > maxC) {
-		setTimer(%A_ThisFunc%, 0), c := 0
-		return
+	if (!gGui.IsActive || ++c > maxC) {															; if grid gui is not visible, or max was exceeded...
+		setTimer(%A_ThisFunc%, 0), c := 0														; ... disable timer
+		return																					; ... then exit
 	}
-	gGui.UpdateGrid(1)
-	(start) && (setTimer(%A_ThisFunc%, 50))														; start timer if needed
+	gGui.UpdateGrid(1)																			; force an update to grid gui
+	(start) && (setTimer(%A_ThisFunc%, 50))														; start timer for more visits, if needed
 }
 ;################################################################################
 																  guiHKListHide()
@@ -768,17 +768,28 @@ class clsSplash extends Gui
 ;################################################################################
 {
 	dpi := (wParam >> 16) & 0xFFFF																; wParam HIWORD - new Y-axis DPI
-	cfg.Save('Reloaded',1), cfg.Disable(), cfg.SaveToDisk()										; set reload flag, save setting
+	cfg.Save('Reloaded',1,0), cfg.SaveToDisk(1)													; set reload flag, prevent auto-save, force-save setting
 	Sleep(500), Reload()																		; reload script to use new scaling
 }
 ;################################################################################
-										WM_LBUTTONDOWN(wParam, lParam, msg, hwnd){				; allows user to move HK gui if desired
+										WM_LBUTTONDOWN(wParam, lParam, msg, hwnd)				; allows user to move HK gui if desired
 ;################################################################################
-
+{
 	if (WinGetTitle(hwnd) = 'HHHKLIST') {														; if user moving HKList...
 		PostMessage(0xA1,2,,,hwnd)																; ... allow click/move anywhere in window
 		KeyWait("LButton")																		; ... wait for user to release left mouse button
 		gHKGui.SavePos()																		; ... save new win pos
+	}
+}
+;################################################################################
+												  shellMessage(wParam, lParam, *)				; get notified when active window changes
+;################################################################################
+{
+	if (!gGui.IsActive)
+		return
+	; 4 = HSHELL_WINDOWACTIVATED, 32772 = HSHELL_RUDELEVELTOPACTIVATED
+	if (wParam = 4 || wParam = 32772) {															; if active window changed...
+		guiForceUpdate(1)																		; ... force an update to grid gui
 	}
 }
 ;#################################  SHORTCUTS  ##################################
