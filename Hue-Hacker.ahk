@@ -1,14 +1,14 @@
 ﻿/*
 	App:	Hue-Hacker Pixel-Peeper
 	Author:	andymbody
-	Date:	2026-06-26
+	Date:	2026-06-27
 	GitHub:	https://github.com/andymbody/Hue-Hacker-Pixel-Peeper
 	Forum:	https://www.autohotkey.com/boards/viewtopic.php?f=83&t=140824
 */
 #Requires AutoHotkey v2.0
 #SingleInstance Force
 CoordMode('Mouse', 'Screen'), CoordMode('Pixel', 'Screen')
-gAppVers := '26-06-26.204'
+gAppVers := '26-06-27.144'
 AppIni()																						; initialize application
 ;################################################################################
 AppClose() {
@@ -19,6 +19,7 @@ AppIni() {
 	global
 	gInitialized := 0																			; disable hotkeys
 		getScale()																				; grab dpi scaling from system
+		getVirtualDimensions()																	; grab virtual display dimensions (for multi-display support)
 		cfg := clsSettings()																	; grab setting from ini file
 		try TraySetIcon('HueHacker.ico')														; set tray icon
 		(!cfg.Grab('Reloaded')) && guiSplashShow()												; show animated splash screen (unless reloading)
@@ -42,8 +43,8 @@ class clsSettings
 	_iniFile		:= A_ScriptDir '\HueHacker.ini'												; ini file to write to
 	;_iniFile		:= 'E:' '\HueHacker.ini'			; thumb-drive for testing				; ini file to write to
 	;############################################################################
-	__New() {																					; allows auto ini of settings for Static class
-		this._getINI()																			; perform these automatically, rather than using multiple static calls
+	__New() {																					; constructor
+		this._getINI()
 	}
 	;############################################################################
 	; add adjustable user settings here as needed
@@ -238,7 +239,7 @@ class clsGrid extends Gui
 	;############################################################################
 	_getHeights() {																				; returns cur height and gui max height allowed
 		padding	:= 0
-		maxH	:= floor((A_ScreenHeight/2)-(gGui.OffsetY/2)-padding)
+		maxH	:= floor((gVD.vH/2)-(gGui.OffsetY/2)-padding)									; 2026-06-27, use virtual height instead of A_ScreenHeight
 		curH	:= Round(scaled(gGui.PxH) + gGui.OffsetY)
 		return	{curH:curH,maxH:maxH}
 	}
@@ -340,32 +341,38 @@ class clsGrid extends Gui
 			this.HideGui()																		; otherwise, hide grid gui
 	}
 	;############################################################################
+	; 2026-06-27, UPDATED to support multi-display setups
 	UpdateGrid(force:=0) {																		; updates grid using a timer, but can be forced as well
 		global ghGuiDC, ghMGuiDC																; global vars improve performance
 		if (!force && !this.NeedsUpdate())														; if no changes are detected...
 			return																				; ... no need for update
+		RCPxScl := this.RCPxScl, RCSqCnt := this.RCSqCnt										; use local vars
 		MouseGetPos(&mX, &mY)																	; get current mouse position
-		pxPerSqr	:= this.RCPxScl / this.RCSqCnt												; [pixels per grid square]
-		halfGrid	:= Floor(this.RCSqCnt / 2)													; [number of GRID SQUARES on either side of center]
+		pxPerSqr	:= RCPxScl / RCSqCnt														; [pixels per grid square]
+		halfGrid	:= Floor(RCSqCnt / 2)														; [number of GRID SQUARES on either side of center]
 		cStart		:= Floor(halfGrid * pxPerSqr)												; [number of PIXELS on either side of center]
 		cEnd		:= cStart + Ceil(pxPerSqr)													; include center square also
 		; get src and dest coords, width, height for drawing
 		; also need to make adjustments at screen edges
 		srcX := mX - halfGrid, srcY := mY - halfGrid											; coords that will begin screen capture
-		dstX := 0, dstY := 0, drawW := this.RCSqCnt, drawH := this.RCSqCnt
-		if (srcX < 0)
-			dstX := Round(Abs(srcX) * pxPerSqr), drawW -= Abs(srcX), srcX := 0
-		if (srcY < 0)
-			dstY := Round(Abs(srcY) * pxPerSqr), drawH -= Abs(srcY), srcY := 0
-		maxW := DllCall('GetSystemMetrics', 'Int', 78, 'Int')
-		maxH := DllCall('GetSystemMetrics', 'Int', 79, 'Int')
-		if (srcX + drawW > maxW)
-			drawW := maxW - srcX
-		if (srcY + drawH > maxH)
-			drawH := maxH - srcY
+		dstX := 0, dstY := 0, drawW := RCSqCnt, drawH := RCSqCnt
+		if (srcX < gVD.vX) {
+			dstX	:= Round(Abs(srcX - gVD.vX) * pxPerSqr)
+			drawW	-= Abs(srcX - gVD.vX)
+			srcX	:= gVD.vX
+		}
+		if (srcY < gVD.vY) {
+			dstY	:= Round(Abs(srcY - gVD.vY) * pxPerSqr)
+			drawH	-= Abs(srcY - gVD.vY)
+			srcY	:= gVD.vY
+		}
+		if (srcX + drawW > gVD.vX + gVD.vW)
+			drawW := (gVD.vX + gVD.vW) - srcX
+		if (srcY + drawH > gVD.vY + gVD.vH)
+			drawH := (gVD.vY + gVD.vH) - srcY
 		; draw to grid canvas
-		DllCall('BitBlt', 'Ptr', ghMGuiDC, 'Int', 0, 'Int', 0, 'Int', this.RCPxScl				; start with black grid canvas
-			, 'Int', this.RCPxScl, 'Ptr', 0, 'Int', 0, 'Int', 0, 'UInt', 0x00000042)			; ... needed when capturing screen edges
+		DllCall('BitBlt', 'Ptr', ghMGuiDC, 'Int', 0, 'Int', 0, 'Int', RCPxScl					; start with black grid canvas
+			, 'Int', RCPxScl, 'Ptr', 0, 'Int', 0, 'Int', 0, 'UInt', 0x00000042)					; ... needed when capturing screen edges
 		hScrnDC := DllCall('GetDC', 'Ptr', 0, 'Ptr')											; get screen device context
 		DllCall('StretchBlt',																	; stretch screen image onto grid canvas
 			'Ptr', ghMGuiDC,
@@ -383,66 +390,64 @@ class clsGrid extends Gui
 		this.DrawCrossHairs(clrs.xHairClr, cStart, cEnd)										; draw cross-hairs to grid canvas
 		this.HL_CenterPx(cStart,cEnd)															; highlight center square
 		this.HL_Frame()					; must be done after text update						; add contrast frame to grid gui
-		DllCall('BitBlt','Ptr',ghGuiDC,'Int',0,'Int',0,'Int',this.RCPxScl						; transfer all updates to gui canvas
-				,'Int',this.RCPxScl,'Ptr',ghMGuiDC,'Int',0,'Int',0,'UInt',0x00CC0020)
+		DllCall('BitBlt','Ptr',ghGuiDC,'Int',0,'Int',0,'Int',RCPxScl							; transfer all updates to gui canvas
+				,'Int',RCPxScl,'Ptr',ghMGuiDC,'Int',0,'Int',0,'UInt',0x00CC0020)
 		DllCall('ReleaseDC', 'Ptr', 0, 'Ptr', hScrnDC)											; discard screen DC resource
 		this.UpdateGridPos()																	; move gui relative to mouse position
 	}
 	;############################################################################
+	; 2026-06-27, UPDATED to support multi-display setups
 	UpdateGridPos() {																			; reposition grid gui relative to mouse pos
 		static xDir := 0, yDir := 0
+		offsetX := this.OffsetX, offsetY := this.OffsetY										; use local vars
 		if (!this._isSizeOk())																	; if grid gui is too big for auto-wrapping...
 			this.Resize(0)																		; ... resize grid gui
 		MouseGetPos(&mX, &mY)																	; get current mouse coords
 		WinGetPos(&rX, &rY, &rW, &rH, ghGrid)													; get SCALED gui dimensions
-		maxW := DllCall('GetSystemMetrics', 'Int', 78, 'Int')									; get screen boundary - right
-		maxH := DllCall('GetSystemMetrics', 'Int', 79, 'Int')									; get screen boundary - bottom
-		minX := DllCall('GetSystemMetrics', 'Int', 76, 'Int')									; get screen boundary - left
-		minY := DllCall('GetSystemMetrics', 'Int', 77, 'Int')									; get screen boundary - top
 		;########################################################################
 		; x-axis
 		if (xDir = 0) {
 			; if moving R and win hits R edge, flip Gui to L of mouse pointer
-			if (mX + this.OffsetX + rW > minX + maxW) {
-				gX := mX - rW - this.OffsetX, xDir := 1
+			if (mX + offsetX + rW > gVD.vX + gVD.vW) {
+				gX := mX - rW - offsetX, xDir := 1
 			} else {
-				gX := mX + this.OffsetX
+				gX := mX + offsetX
 			}
 		} else { ; xDir = 1
 			; only flip back to R side of mouse when Gui reaches L edge
-			if (mX - rW - this.OffsetX < minX) {
-				gX := mX + this.OffsetX, xDir := 0
+			if (mX - rW -offsetX < gVD.vX) {
+				gX := mX + offsetX, xDir := 0
 			} else {
-				gX := mX - rW - this.OffsetX
+				gX := mX - rW - offsetX
 			}
 		}
 		;########################################################################
 		; y-axis
 		if (yDir = 0) {
 			; if moving dn and win hits bot edge, flip Gui above mouse pointer
-			if (mY + this.OffsetY + rH > minY + maxH) {
-				gY := mY - rH - this.OffsetY, yDir := 1
+			if (mY + offsetY + rH > gVD.vY + gVD.vH) {
+				gY := mY - rH - offsetY, yDir := 1
 			} else {
-				gY := mY + this.OffsetY
+				gY := mY + offsetY
 			}
 		} else { ; yDir = 1
 			; only flip below mouse pointer when Gui reaches top edge
-			if (mY - rH - this.OffsetY < minY) {
-				gY := mY + this.OffsetY, yDir := 0
+			if (mY - rH - offsetY < gVD.vY) {
+				gY := mY + offsetY, yDir := 0
 			} else {
-				gY := mY - rH - this.OffsetY
+				gY := mY - rH - offsetY
 			}
 		}
 		;########################################################################
 		; safety overrides to prev gui clipping under taskbars/edges
-		if (gX < minX)
-			gX := minX
-		if (gY < minY)
-			gY := minY
-		if (gX + rW > minX + maxW)
-			gX := (minX + maxW) - rW
-		if (gY + rH > minY + maxH)
-			gY := (minY + maxH) - rH
+		if (gX < gVD.vX)
+			gX := gVD.vX
+		if (gY < gVD.vY)
+			gY := gVD.vY
+		if (gX + rW > gVD.vX + gVD.vW)
+			gX := (gVD.vX + gVD.vW) - rW
+		if (gY + rH > gVD.vY + gVD.vH)
+			gY := (gVD.vY + gVD.vH) - rH
 
 		WinMove(gX,gY,,,ghGrid)
 	}
@@ -690,6 +695,21 @@ class clsSplash extends Gui
 		gScale := dpi / 96																		; ... save scale to global var
 	}
 	return gScale																				; return to caller, in case needed
+}
+;################################################################################
+; 2026-06-27, ADDED to support multi-display setups
+														   getVirtualDimensions()				; returns virtual display dimensions (for multi-display support)
+;################################################################################
+{
+	global gVD
+	if (!IsSet(gVD)) {
+		vX	:= DllCall('GetSystemMetrics', 'Int', 76, 'Int') ; SM_XVIRTUALSCREEN
+		vY	:= DllCall('GetSystemMetrics', 'Int', 77, 'Int') ; SM_YVIRTUALSCREEN
+		vW	:= DllCall('GetSystemMetrics', 'Int', 78, 'Int') ; SM_CXVIRTUALSCREEN
+		vH	:= DllCall('GetSystemMetrics', 'Int', 79, 'Int') ; SM_CYVIRTUALSCREEN
+		gVD	:= {vX:vX,vY:vY,vW:vW,vH:vH}
+	}
+	return gVD
 }
 ;################################################################################
 														 guiForceUpdate(reset:=0)				; forces a grid update for 2 secs
