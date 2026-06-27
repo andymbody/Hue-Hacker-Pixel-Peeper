@@ -8,7 +8,7 @@
 #Requires AutoHotkey v2.0
 #SingleInstance Force
 CoordMode('Mouse', 'Screen'), CoordMode('Pixel', 'Screen')
-gAppVers := '26-06-26.200'
+gAppVers := '26-06-26.204'
 AppIni()																						; initialize application
 ;################################################################################
 AppClose() {
@@ -83,12 +83,12 @@ class clsSettings
 		return ''																				; otherwise use empty string as return val
 	}
 	;############################################################################
-	Save(key,val,toIni:=1) {														; Public				; saves setting to map, flags need to write to disk
+	Save(key,val,toIni:=1) {											; Public				; saves setting to map, flags need to write to disk
 		prevVal := ''																			; val to return if key has no previous value
 		if (this._cache.Has(key))																; if key is found...
 			prevVal := this._cache[key]															; ... record previous value
 		if (prevVal != val) {																	; if new value does not match prev value...
-			this._cache[key] := val
+			this._cache[key] := val																; ... save new val to map
 			if (toIni) {																		; if setting should be written to ini file...
 				this._toDisk := 1, SetTimer(this._svd, -3000)									; ... prep for delayed ini write
 			} else {																			; otherwise...
