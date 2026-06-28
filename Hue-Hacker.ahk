@@ -143,7 +143,9 @@ class clsGrid extends Gui
 	clrInfo		:= unset																		; all color info
 	BdrGap		:= 1																			; gui frame thickness
 	txtW		=> this.PxW - (this.BdrGap * 2)													; width  for status bar text and info text
-	txtStusY	=> this.RCPxCnt + this.txtInfoH - this.BdrGap												; height for status bar text
+	txtStusY	=> this.RCPxCnt + this.txtInfoH - this.BdrGap									; height for status bar text
+	winX		:= 0																			; gui X pos
+	winY		:= 0																			; gui Y pos
 	;############################################################################
 	__New() {
 		super.__new('+AlwaysOnTop -Caption +ToolWindow +E0x20')									; pass options to papa
@@ -170,11 +172,11 @@ class clsGrid extends Gui
 					, this.BdrGap, this.RCPxCnt, this.txtW, txtH))
 		skinClr		:= cfg.Grab('SkinClr')
 		txtOpts		:= ' 0x0200 -border Background' skinClr										; options for status bar text
-		this.txtStus:= this.Add('Text', Format(txtOpts ' x{} y{} w{} h{}'
+		this.txtStus:= this.Add('Text', Format(txtOpts ' x{} y{} w{} h{}'						; status bar text control
 					, this.BdrGap, this.txtStusY, this.txtW, this.txtStusH))
 		this.GridLock:= cfg.Grab('GridLock')													; get cur setting for grid window lock
 		this.winX	:= cfg.Grab('GridPosX'), this.winY := cfg.Grab('GridPosY')					; get cur setting for grid window x/y
-		this.UpdateStatus()
+		this.UpdateStatus()																		; update status bar (lock status)
 		this._gdiIni()																			; grid canvas, for drawing
 		this.GridUpdateCB := ObjBindMethod(this, 'UpdateGrid')									; required to use method for SetTimer
 		OnMessage(0x02E0, WM_DPICHANGED)														; gui detects dpi scaling changes (must follow Gui ini)
@@ -338,7 +340,9 @@ class clsGrid extends Gui
 	}
 	;############################################################################
 	SavePos() {																					; ensures custom win pos is saved
-		this.GetPos(&x,&y), cfg.Save('GridPosX',x), cfg.Save('GridPosY',y)						; save cur win x/y pos
+		this.GetPos(&x,&y)																		; get cur win x/y
+		this.winX := x, this.winY := y															; save locally
+		cfg.Save('GridPosX',x), cfg.Save('GridPosY',y)											; save to cfg and ini
 	}
 	;############################################################################
 	ShowGui() {																					; show grid gui, enable timer for updates
@@ -541,9 +545,11 @@ class clsHKList extends Gui
 	'F8:Toggle Tool On/Off',
 	'Alt + C:Copy ALL info to clipboard',
 	'Alt + H:Copy HEX value to clipboard',
+	'Alt + L:Lock tool win position (no follow)',
 	'Alt + S:Show Shortcuts List (this)',
 	'Escape:Close Shortcuts List (this)',
-	'Arrow Keys:Fine-tune mouse position',
+	'Arrow Keys:Fine-tune mouse position +/-1',
+	'Alt + Arrow Keys:Fine-tune mouse position +/-10',
 	'Shift + Arrows/Wheel:Resize window/view',
 	'Ctrl  + Arrows/Wheel:Adjust magnification',
 	'Ctrl  + Escape:Quit Tool']
@@ -581,13 +587,14 @@ class clsHKList extends Gui
 		this.Add('Text','x20 y48 w390 h2 Background333333')										; txt control used as divider line
 		; add hk list
 		cY := 60
+		bkgd := '' ;' background000000 '
 		for idx, kv in this._keyList {															; for each entry in shortcut list array...
 			ss := StrSplit(kv,':'), key := ss[1], desc := ss[2]									; extract trigger and description
-			cY += (A_Index>1) ? 25 : 0															; adjust Y pos for each line
+			cY += (A_Index>1) ? 20 : 0															; adjust Y pos for each line
 			this.SetFont('s9 w600 ' triggerClr, 'Consolas')										; trigger font
-			this.Add('Text', 'x20 y' cY ' w190 h19', '  ' key)									; trigger
+			this.Add('Text', bkgd ' x20 y' cY ' w190 h19', '  ' key)							; trigger
 			this.SetFont('s9 w400 ' textColor, fontName)										; desc font
-			this.Add('Text', 'center x220 y' cY ' w190 h19', desc)								; desc
+			this.Add('Text', bkgd ' center x220 y' cY ' w190 h19', desc)						; desc
 		}
 		; show window with custom placement
 		winX := this._winX, winY := this._winY													; get custom x/y
