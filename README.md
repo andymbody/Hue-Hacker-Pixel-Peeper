@@ -11,7 +11,7 @@ There are many color pickers out there and they all have strengths and weaknesse
 - 	Color information can be extracted/copied to the clipboard.
 - 	Multiple monitor setup support.
 
-![screenshot](https://github.com/andymbody/Hue-Hacker-Pixel-Peeper/blob/main/images/Hue-Hacker_2.png
+![screenshot](https://github.com/andymbody/Hue-Hacker-Pixel-Peeper/blob/main/images/Hue-Hacker_2.png)
 
 ---
 
@@ -33,7 +33,7 @@ There are many color pickers out there and they all have strengths and weaknesse
 *	`Alt + C` — Copy **all** current info (Coordinates, RGB, and HEX values) to your clipboard.
 *	`Alt + H` — Copy **just** the clean HEX code (perfect for pasting straight into CSS or design tools).
 
-![screenshot](https://github.com/andymbody/Hue-Hacker-Pixel-Peeper/blob/main/images/Hue-Hacker_shortcuts.png
+![screenshot](https://github.com/andymbody/Hue-Hacker-Pixel-Peeper/blob/main/images/Hue-Hacker_shortcuts.png)
 
 ---
 
