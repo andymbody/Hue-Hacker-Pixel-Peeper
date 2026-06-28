@@ -8,7 +8,7 @@
 #Requires AutoHotkey v2.0
 #SingleInstance Force
 CoordMode('Mouse', 'Screen'), CoordMode('Pixel', 'Screen')
-gAppVers := '26-06-28.031'
+gAppVers := '26-06-28.101'
 AppIni()																						; initialize application
 ;################################################################################
 AppClose() {
