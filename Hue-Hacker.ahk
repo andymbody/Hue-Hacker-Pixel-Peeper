@@ -8,7 +8,7 @@
 #Requires AutoHotkey v2.0
 #SingleInstance Force
 CoordMode('Mouse', 'Screen'), CoordMode('Pixel', 'Screen')
-gAppVers := '26-06-27.144'
+gAppVers := '26-06-27.211'
 AppIni()																						; initialize application
 ;################################################################################
 AppClose() {
@@ -22,13 +22,11 @@ AppIni() {
 		getVirtualDimensions()																	; grab virtual display dimensions (for multi-display support)
 		cfg := clsSettings()																	; grab setting from ini file
 		try TraySetIcon('HueHacker.ico')														; set tray icon
-		(!cfg.Grab('Reloaded')) && guiSplashShow()												; show animated splash screen (unless reloading)
+		guiSplashShow()																			; show animated splash screen
 		DllCall('SetThreadDpiAwarenessContext', 'ptr', -4, 'ptr')								; needs to be before Gui ini
 		gGui := clsGrid()																		; initialize grid gui using custom Gui class
 		DllCall('RegisterShellHookWindow', 'Ptr', gGui.Hwnd)									; setup win hook
 		OnMessage(DllCall('RegisterWindowMessage', 'Str', 'SHELLHOOK'), shellMessage)			; setup notification for active win changes
-		if (cfg.Grab('Reloaded'))																; if script is being reloaded...
-			cfg.Save('Reloaded',0), gGui.ShowGui()												; ... reset reload flag and show grid gui
 		(cfg.Grab('ShowHKs')) && guiHKListShow()												; show shortcuts list (if enabled)
 	gInitialized := 1																			; enable hotkeys
 }
@@ -50,7 +48,6 @@ class clsSettings
 	; add adjustable user settings here as needed
 	_getDefVals() {																				; hard coded default values
 		this._cache['SkinClr'] := '202020'														; gui skin bkgd color
-		this._cache['Reloaded'] := '0'															; flag for reloading
 		this._cache['ShowHKs' ] := '1'															; whether to show HK list at startup
 		this._cache['HKListX' ] := ''															; custom X position for HK list
 		this._cache['HKListY' ] := ''															; custom Y position for HK list
@@ -784,12 +781,15 @@ class clsSplash extends Gui
 	return value * getScale()
 }
 ;################################################################################
-										 WM_DPICHANGED(wParam, lParam, msg, hwnd)				; allows gui to detect dpi changes on the fly, which initiates a script reload
+										 WM_DPICHANGED(wParam, lParam, msg, hwnd)				; allows gui to detect dpi changes on the fly, and adj
 ;################################################################################
 {
-	dpi := (wParam >> 16) & 0xFFFF																; wParam HIWORD - new Y-axis DPI
-	cfg.Save('Reloaded',1,0), cfg.SaveToDisk(1)													; set reload flag, prevent auto-save, force-save setting
-	Sleep(500), Reload()																		; reload script to use new scaling
+	if (hwnd != gGui.hwnd)
+		return
+	getScale()
+	getVirtualDimensions()
+	gGui.Resize(0)
+	guiForceUpdate(1)
 }
 ;################################################################################
 										WM_LBUTTONDOWN(wParam, lParam, msg, hwnd)				; allows user to move HK gui if desired
@@ -829,13 +829,17 @@ class clsSplash extends Gui
 ~WheelDown::
 ~LButton::
 ~RButton::			guiForceUpdate(1)															; forces update for mouse clicks/scrolling
-Up::				MouseMove(0, -1, 0, 'R')
-Down::				MouseMove(0, 1, 0, 'R')
-Left::				MouseMove(-1, 0, 0, 'R')
-Right::				MouseMove(1, 0, 0, 'R')
+Up::				MouseMove(0, -1,  0, 'R')
+Down::				MouseMove(0,  1,  0, 'R')
+Left::				MouseMove(-1, 0,  0, 'R')
+Right::				MouseMove(1,  0,  0, 'R')
+!Up::				MouseMove(0, -10, 0, 'R')
+!Down::				MouseMove(0,  10, 0, 'R')
+!Left::				MouseMove(-10, 0, 0, 'R')
+!Right::			MouseMove(10,  0, 0, 'R')
 !h::
 !c::				gGui.CopyToClip(A_ThisHotkey)
-#HotIf			(gInitialized&&!WinActive('ahk_class #32770')&&!WinActive('HHHKLIST'))			; do not show HK list if currently displayed
+#HotIf			(gInitialized && !WinActive('HHHKLIST'))										; do not show HK list if currently displayed
 !s::				guiHKListShow()
 #HotIf			(gInitialized)																	; hotkeys that work whether tool is active or not
 ~Esc::				guiHKListHide()																; close HK list if open
