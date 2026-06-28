@@ -1,14 +1,14 @@
 ﻿/*
 	App:	Hue-Hacker Pixel-Peeper
 	Author:	andymbody
-	Date:	2026-06-27
+	Date:	2026-06-28
 	GitHub:	https://github.com/andymbody/Hue-Hacker-Pixel-Peeper
 	Forum:	https://www.autohotkey.com/boards/viewtopic.php?f=83&t=140824
 */
 #Requires AutoHotkey v2.0
 #SingleInstance Force
 CoordMode('Mouse', 'Screen'), CoordMode('Pixel', 'Screen')
-gAppVers := '26-06-27.211'
+gAppVers := '26-06-28.021'
 AppIni()																						; initialize application
 ;################################################################################
 AppClose() {
@@ -27,6 +27,7 @@ AppIni() {
 		gGui := clsGrid()																		; initialize grid gui using custom Gui class
 		DllCall('RegisterShellHookWindow', 'Ptr', gGui.Hwnd)									; setup win hook
 		OnMessage(DllCall('RegisterWindowMessage', 'Str', 'SHELLHOOK'), shellMessage)			; setup notification for active win changes
+		OnMessage(0x0201, WM_LBUTTONDOWN)														; enable click/drag anywhere in HK gui
 		(cfg.Grab('ShowHKs')) && guiHKListShow()												; show shortcuts list (if enabled)
 	gInitialized := 1																			; enable hotkeys
 }
@@ -47,12 +48,15 @@ class clsSettings
 	;############################################################################
 	; add adjustable user settings here as needed
 	_getDefVals() {																				; hard coded default values
-		this._cache['SkinClr'] := '202020'														; gui skin bkgd color
+		this._cache['SkinClr' ] := '202020'														; gui skin bkgd color
 		this._cache['ShowHKs' ] := '1'															; whether to show HK list at startup
 		this._cache['HKListX' ] := ''															; custom X position for HK list
 		this._cache['HKListY' ] := ''															; custom Y position for HK list
 		this._cache['RCSqCnt' ] := ''															; GRID  square count for grid single row/col (zoom factor)
 		this._cache['RCPxCnt' ] := ''															; SCREEN pixel count for grid single row/col (win size)
+		this._cache['GridLock'] := '0'															; whether grid gui is locked in static position
+		this._cache['GridPosX'] := ''															; grid gui static position X
+		this._cache['GridPosY'] := ''															; grid gui static position Y
 	}
 	;############################################################################
 	CancelSave() {																				; prevents pending ini write
@@ -121,21 +125,25 @@ class clsSettings
 class clsGrid extends Gui
 {
 	OffsetX		:= 75, OffsetY := 75															; pixel distance between mouse and gui
-	TxtCtrlH	:= 48																			; initial height of text display control
+	txtInfoH	:= 48																			; initial height of text display control
+	txtStusH	:= 22																			; status bar text height
 	DefPxCnt	:= 200								; screen pixels								; default PIXEL  count for grid single row/col
 	DefSqCnt	:= 39								; grid squares								; default SQUARE count for grid single row/col
 	RCSqMin		:= 3, RCSqMax := 43					; grid squares								; min/max square count for grid single row/col
 	RCSqCnt		:= (cfg.Grab('RCSqCnt')) ?  (cfg.Grab('RCSqCnt')) : this.DefSqCnt				; GRID  square count for grid single row/col
 	RCPxCnt		:= (cfg.Grab('RCPxCnt')) ?  (cfg.Grab('RCPxCnt')) : this.DefPxCnt				; SCREEN pixel count for grid single row/col
 	RCPxScl		=> Round(scaled(this.RCPxCnt))													; SCREEN pixel count for grid single row/col (scaled)
-	PxH			:= this.RCPxCnt + this.TxtCtrlH													; initial gui height
+	PxH			=> this.RCPxCnt + this.txtInfoH + this.txtStusH									; initial gui height
 	PxW			:= this.RCPxCnt																	; initial gui width
 	isActive	:= 0																			; whether tool is active/visible or not
+	GridLock	:= 0																			; whether grid gui is locked in static pos
 	txtInfo		:= ''																			; control to display color details
 	textFrgd	:= ''																			; text font color
 	textBkgd	:= ''																			; text bkgd color (hex format)
 	clrInfo		:= unset																		; all color info
 	BdrGap		:= 1																			; gui frame thickness
+	txtW		=> this.PxW - (this.BdrGap * 2)													; width  for status bar text and info text
+	txtStusY	=> this.RCPxCnt + this.txtInfoH - this.BdrGap												; height for status bar text
 	;############################################################################
 	__New() {
 		super.__new('+AlwaysOnTop -Caption +ToolWindow +E0x20')									; pass options to papa
@@ -156,10 +164,17 @@ class clsGrid extends Gui
 	_customIni() {
 		fontSize	:= (gScale = 1) ? 's7' : 's8'												; ensure text is limited to 3 lines
 		this.SetFont(fontSize ' cWhite W600', 'Segoe UI')
-		txtOpts		:= 'Background000000 +border center +multi '								; options for text control
-		this.txtInfo:= this.Add('Text', Format(txtOpts 'x{} y{} w{} h{}'						; control to display color details
-					, this.BdrGap, this.RCPxCnt
-					, this.PxW-this.BdrGap*2, this.TxtCtrlH-this.BdrGap))
+		txtOpts		:= ' +border Background000000 center +multi '								; options for text control
+		txtH		:= this.txtInfoH-this.BdrGap
+		this.txtInfo:= this.Add('Text', Format(txtOpts ' x{} y{} w{} h{}'						; control to display color details
+					, this.BdrGap, this.RCPxCnt, this.txtW, txtH))
+		skinClr		:= cfg.Grab('SkinClr')
+		txtOpts		:= ' 0x0200 -border Background' skinClr										; options for status bar text
+		this.txtStus:= this.Add('Text', Format(txtOpts ' x{} y{} w{} h{}'
+					, this.BdrGap, this.txtStusY, this.txtW, this.txtStusH))
+		this.GridLock:= cfg.Grab('GridLock')													; get cur setting for grid window lock
+		this.winX	:= cfg.Grab('GridPosX'), this.winY := cfg.Grab('GridPosY')					; get cur setting for grid window x/y
+		this.UpdateStatus()
 		this._gdiIni()																			; grid canvas, for drawing
 		this.GridUpdateCB := ObjBindMethod(this, 'UpdateGrid')									; required to use method for SetTimer
 		OnMessage(0x02E0, WM_DPICHANGED)														; gui detects dpi scaling changes (must follow Gui ini)
@@ -235,7 +250,7 @@ class clsGrid extends Gui
 	}
 	;############################################################################
 	_getHeights() {																				; returns cur height and gui max height allowed
-		padding	:= 0
+		padding	:= 10
 		maxH	:= floor((gVD.vH/2)-(gGui.OffsetY/2)-padding)									; 2026-06-27, use virtual height instead of A_ScreenHeight
 		curH	:= Round(scaled(gGui.PxH) + gGui.OffsetY)
 		return	{curH:curH,maxH:maxH}
@@ -314,16 +329,25 @@ class clsGrid extends Gui
 				: ((delta < 1 || h.curH + delta < h.maxH) ? this.RCPxCnt + delta : 0)			; prevent enlargement if at max size
 		if (newSz < 100)																		; prevent text from clipping at edges of control
 			return
-		this.PxW := this.RCPxCnt := newSz, this.PxH := this.RCPxCnt + this.TxtCtrlH				; set new width/height for grid win
+		this.PxW := this.RCPxCnt := newSz														; set new width for grid win
 		this._gdiUpdate(), this.Move(,,this.PxW,this.PxH)										; update win size/view for new dimensions
-		tiW := this.PxW - this.BdrGap*2, tiH := this.TxtCtrlH - this.BdrGap						; set width/height for color info box
+		tiW := this.txtW, tiH := this.txtInfoH - this.BdrGap									; set width/height for color info box
 		this.txtInfo.Move(this.BdrGap, this.RCPxCnt, tiW, tiH)									; resize color info box
+		this.txtStus.Move(this.BdrGap, this.txtStusY, tiW, this.txtStusH)						; resize status info box
 		cfg.Save('RCPxCnt',this.RCPxCnt)														; save cur pixel COUNT for single row of grid
+	}
+	;############################################################################
+	SavePos() {																					; ensures custom win pos is saved
+		this.GetPos(&x,&y), cfg.Save('GridPosX',x), cfg.Save('GridPosY',y)						; save cur win x/y pos
 	}
 	;############################################################################
 	ShowGui() {																					; show grid gui, enable timer for updates
 		this.IsActive := 1																		; flag as visible
-		MouseGetPos(&mX, &mY), gX := mX + this.OffsetX, gY := mY + this.OffsetY					; set position for grid gui
+		if (this.GridLock) {																	; if grid gui pos is locked/static...
+			gX := this.winX, gY := this.winY													; ... use static x/y values
+		} else {																				; otherwise...
+			MouseGetPos(&mX,&mY), gX := mX+this.OffsetX, gY := mY+this.OffsetY					; ... set pos near mouse
+		}
 		this.UpdateGrid(1)	; force grid update while hidden									; softens abrupt painting
 		this.Show(Format('hide x{} y{} w{} h{}', gX, gY, this.PxW, this.PxH))					; hide initially, for better animation effect
 		guiWinFade(this, 1, 1000)																; animate entrance
@@ -336,6 +360,15 @@ class clsGrid extends Gui
 			this.ShowGui(), this.UpdateGrid(1)													; ... show, and force update
 		else
 			this.HideGui()																		; otherwise, hide grid gui
+	}
+	;############################################################################
+	ToggleLock() {																				; toggles whether grid gui is locked at static position
+		if (this.GridLock ^= 1)																	; if gridlock is enabled...
+			this.SavePos()																		; ... save the cur x/y pos
+		cfg.Save('GridLock', this.GridLock)														; save gridlock state
+		this.UpdateStatus()																		; update status bar with current lock condition
+		guiForceUpdate(1)																		; force a grid image update
+		;ToolTip(cfg.Grab('GridLock') '`n' cfg.Grab('GridPosX') '`n' cfg.Grab('GridPosY'))
 	}
 	;############################################################################
 	; 2026-06-27, UPDATED to support multi-display setups
@@ -383,7 +416,7 @@ class clsGrid extends Gui
 			'UInt', 0x00CC0020	)
 		targClr	:= DllCall('GetPixel', 'Ptr', hScrnDC, 'Int', mX, 'Int', mY, 'UInt')			; get pixel color at mouse pointer
 		clrs	:= this._getClrInfo(targClr)													; process/return color details
-		this.UpdateText(mX,mY,clrs)																; update text details
+		this.UpdateInfoText(mX,mY,clrs)															; update text details
 		this.DrawCrossHairs(clrs.xHairClr, cStart, cEnd)										; draw cross-hairs to grid canvas
 		this.HL_CenterPx(cStart,cEnd)															; highlight center square
 		this.HL_Frame()					; must be done after text update						; add contrast frame to grid gui
@@ -396,6 +429,8 @@ class clsGrid extends Gui
 	; 2026-06-27, UPDATED to support multi-display setups
 	UpdateGridPos() {																			; reposition grid gui relative to mouse pos
 		static xDir := 0, yDir := 0
+		if (this.GridLock)																		; if grid gui is locked in static pos...
+			return																				; ... do not reposition it
 		offsetX := this.OffsetX, offsetY := this.OffsetY										; use local vars
 		if (!this._isSizeOk())																	; if grid gui is too big for auto-wrapping...
 			this.Resize(0)																		; ... resize grid gui
@@ -449,7 +484,12 @@ class clsGrid extends Gui
 		WinMove(gX,gY,,,ghGrid)
 	}
 	;############################################################################
-	UpdateText(x,y,clrs) {																		; updates text area of display
+	UpdateStatus() {																			; update status bar text
+		lock := '  ' . ((this.GridLock) ? '🔒' : '🔓')											; set lock icon
+		this.txtStus.Value := lock
+	}
+	;############################################################################
+	UpdateInfoText(x,y,clrs) {																	; updates text area of display
 		R := clrs.Clr.R, G := clrs.Clr.G, B := clrs.Clr.B										; grab RGB
 		this.textBkgd		:= clrs.Clr.H														; save text bkgd for later (hex color)
 		this.textFrgd		:= clrs.txtFClr														; save text frgd for later
@@ -513,7 +553,6 @@ class clsHKList extends Gui
 		this._winY := winY																		; custom Y pos for window
 		this._iniHKGui()																		; initialize window and controls
 		this.Title := 'HHHKLIST'																; used as detection flag for escape key
-		OnMessage(0x0201, WM_LBUTTONDOWN)														; enable click/drag anywhere in HK gui
 	}
 	;############################################################################
 	_evCtrl(ctrl,*) {																			; event handler for checkbox
@@ -559,8 +598,7 @@ class clsHKList extends Gui
 	}
 	;############################################################################
 	SavePos() {																					; ensures custom win pos is saved
-		this.GetPos(&x,&y)																		; get current win pos on screen
-		cfg.Save('HkListX',x), cfg.Save('HkListY',y)											; save current win pos
+		this.GetPos(&x,&y), cfg.Save('HkListX',x), cfg.Save('HkListY',y)						; save cur win x/y pos
 	}
 	;############################################################################
 	ShowGui(x:='',y:='') {																		; shows list using animation
@@ -795,10 +833,15 @@ class clsSplash extends Gui
 										WM_LBUTTONDOWN(wParam, lParam, msg, hwnd)				; allows user to move HK gui if desired
 ;################################################################################
 {
-	if (WinGetTitle(hwnd) = 'HHHKLIST') {														; if user moving HKList...
+	if (WinGetTitle(hwnd) = 'HHHKLIST') {														; if user is moving HKList...
 		PostMessage(0xA1,2,,,hwnd)																; ... allow click/move anywhere in window
 		KeyWait("LButton")																		; ... wait for user to release left mouse button
 		gHKGui.SavePos()																		; ... save new win pos
+	}
+	if (hwnd = gGui.Hwnd && gGui.GridLock) {													; if user is moving grid gui...
+		PostMessage(0xA1,2,,,hwnd)																; ... allow click/move anywhere in window
+		KeyWait("LButton")																		; ... wait for user to release left mouse button
+		gGui.SavePos()																			; ... save new win pos
 	}
 }
 ;################################################################################
@@ -839,11 +882,12 @@ Right::				MouseMove(1,  0,  0, 'R')
 !Right::			MouseMove(10,  0, 0, 'R')
 !h::
 !c::				gGui.CopyToClip(A_ThisHotkey)
+!l::				gGui.ToggleLock()
 #HotIf			(gInitialized && !WinActive('HHHKLIST'))										; do not show HK list if currently displayed
 !s::				guiHKListShow()
 #HotIf			(gInitialized)																	; hotkeys that work whether tool is active or not
 ~Esc::				guiHKListHide()																; close HK list if open
 ^Esc::				AppClose()																	; quit app
-F8::			gGui.ToggleActive()																; show/hide grid gui
+F8::				gGui.ToggleActive()															; show/hide grid gui
 #HotIf
 
