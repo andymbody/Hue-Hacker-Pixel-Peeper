@@ -1,15 +1,15 @@
 # 🔍 Hue-Hacker Pixel-Peeper
 
-There are many color pickers out there and they all have strengths and weaknesses. Is this one any different? Take it for a spin and decide. But before you do, here are some key features you should expect from the tool:
+There are many color pickers out there. Is this one any different? Take it for a spin and decide. But before you do, here are some key features you should expect from this tool:
 
 - 	Lightweight, yet useful.
 - 	Includes a loupe (magnifier) that can be adjusted on-the-fly in size and magnification level (up to 120X).
 - 	Supports mouse-wheel win-sizing and zoom-levels (independently), or use keyboard shortcuts for the same.
 - 	Micro-navigation of target pixel using the keyboard, in 1 or 10 pixel increments.
-- 	Viewing/Adjustments should be Snappy/Responsive.
-- 	Supports Floating (with mouse) or Docking of loupe window.
+- 	Viewing/Adjustments should be snappy/responsive.
+- 	Supports dynamic positioning of loupe window. Can float with the mouse or be docked at desired position.
 - 	Color information can be extracted/copied to the clipboard.
-- 	Multiple monitor setup support.
+- 	Supports multiple-display setups.
 
 ![screenshot](https://github.com/andymbody/Hue-Hacker-Pixel-Peeper/blob/main/images/Hue-Hacker_2.png)
 
@@ -18,20 +18,20 @@ There are many color pickers out there and they all have strengths and weaknesse
 ## ⌨️ Quick-Start Keyboard Shortcuts
 
 ### 🖥️ App Navigation
-*	`F8` — Show/hide the loupe window instantly.
-* 	`Alt + L` — Docking - Lock/Unlock the loupe window position.
-*	`Alt + S` — Pop open a quick cheat-sheet of all shortcuts right on your screen.
-*	`Ctrl + Escape` — Close the app completely.
+*	`F8` — Toggle loupe tool on/off as desired.
+* 	`Alt + L` — Toggle loupe position (locked or mouse-follow).
+*	`Alt + S` — Show shortcuts cheat-sheet, can be placed anywhere you like.
+*	`Ctrl + Escape` — Quit the app completely.
 
 ### 🔍 Adjusting Your View
-*	`Arrow Keys` — Nudge your mouse 1 pixel at a time for pinpoint accuracy.
-*	`Alt + Arrow Keys` — Jump your mouse 10 pixels at a time.
-*	`Shift + Mouse Wheel` (or `Shift + Up/Down`) — Adjust the size of the loupe window.
-*	`Ctrl + Mouse Wheel` (or `Ctrl + Up/Down`) — Increase/decrease magnification level.
+*	`Arrow Keys` — Adjust mouse position +/- 1 pixel for pinpoint accuracy.
+*	`Alt + Arrow Keys` — Adjust mouse position +/- 10 pixels.
+*	`Shift + Mouse Wheel` (or `Shift + Up/Down`) — Resize loupe window.
+*	`Ctrl + Mouse Wheel` (or `Ctrl + Up/Down`) — Adjust loupe magnification level.
 
 ### 📋 Grabbing Colors
 *	`Alt + C` — Copy **all** current info (Coordinates, RGB, and HEX values) to your clipboard.
-*	`Alt + H` — Copy **just** the clean HEX code (perfect for pasting straight into CSS or design tools).
+*	`Alt + H` — Copy **just** the HEX code to your clipboard.
 
 ![screenshot](https://github.com/andymbody/Hue-Hacker-Pixel-Peeper/blob/main/images/Hue-Hacker_shortcuts.png)
 
@@ -41,7 +41,7 @@ There are many color pickers out there and they all have strengths and weaknesse
 
 1.	Make sure you have [AutoHotkey v2](https://www.autohotkey.com/download/) installed on your PC.
 2.	Download or clone this repository.
-3.	Double-click **`Hue-Hacker.ahk`** and enjoy!
+3.	Run **`Hue-Hacker.ahk`** and enjoy!
 
 ---
 
