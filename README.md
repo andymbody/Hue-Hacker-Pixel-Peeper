@@ -3,10 +3,10 @@
 There are many color pickers out there. Is this one any different? Take it for a spin and decide. But before you do, here are some key features you should expect from this tool:
 
 - 	Lightweight, yet useful.
-- 	Includes a loupe (magnifier) that can be adjusted on-the-fly in size and magnification level (up to 120X).
+- 	Includes a loupe with magnification level up to 120X.
 - 	Supports dynamic sizing of loupe window as well as magnification level (using mouse-wheel or keyboard).
 - 	Supports dynamic positioning of loupe window. Can float with the mouse or be docked at desired position.
-- 	Supports micro-navigation of target pixel using the keyboard, in 1 or 10 pixel increments.
+- 	Supports micro-navigation of target pixel wusing the keyboard, in 1 or 10 pixel increments.
 - 	Viewing/Adjustments should be snappy/responsive.
 - 	Color information can be extracted/copied to the clipboard.
 - 	Supports multiple-display setups.
