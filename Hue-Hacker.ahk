@@ -39,8 +39,8 @@ class clsSettings
 	_svd			:= ObjBindMethod(this, 'SaveToDisk')										; required to use method with SetTimer
 	_cache			:= Map()																	; settings Map
 	_toDisk			:= 0																		; flag to signal that changes have not been saved to disk yet
-	;_iniFile		:= A_ScriptDir '\HueHacker.ini'												; ini file to write to
-	_iniFile		:= 'E:' '\HueHacker.ini'			; thumb-drive for testing				; ini file to write to
+	_iniFile		:= A_ScriptDir '\HueHacker.ini'												; ini file to write to
+	;_iniFile		:= 'E:' '\HueHacker.ini'			; thumb-drive for testing				; ini file to write to
 	;############################################################################
 	__New() {																					; constructor
 		this._getINI()
