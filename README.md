@@ -29,7 +29,7 @@ There are many color pickers out there. Is this one any different? Take it for a
 *	`Shift + Mouse Wheel` (or `Shift + Up/Down`) — Resize loupe window.
 *	`Ctrl + Mouse Wheel` (or `Ctrl + Up/Down`) — Adjust loupe magnification level.
 
-### 📋 Grabbing Colors
+### 🎨 Grabbing Colors
 *	`Alt + C` — Copy **all** current info (Coordinates, RGB, and HEX values) to your clipboard.
 *	`Alt + H` — Copy **just** the HEX code to your clipboard.
 
