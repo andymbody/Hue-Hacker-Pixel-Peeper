@@ -23,7 +23,7 @@ There are many color pickers out there. Is this one any different? Take it for a
 *	`Alt + S` — Show shortcuts cheat-sheet, can be placed anywhere you like.
 *	`Ctrl + Escape` — Quit the app completely.
 
-### 🔍 Adjusting Your View
+### 👀 Adjusting Your View
 *	`Arrow Keys` — Adjust mouse position +/- 1 pixel for pinpoint accuracy.
 *	`Alt + Arrow Keys` — Adjust mouse position +/- 10 pixels.
 *	`Shift + Mouse Wheel` (or `Shift + Up/Down`) — Resize loupe window.

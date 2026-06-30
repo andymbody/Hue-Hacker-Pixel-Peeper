@@ -8,7 +8,7 @@
 #Requires AutoHotkey v2.0
 #SingleInstance Force
 CoordMode('Mouse', 'Screen'), CoordMode('Pixel', 'Screen'), CoordMode('Tooltip', 'Screen')
-gAppVers := '26-06-30.105'
+gAppVers := '26-06-30.141'
 AppIni()																						; initialize application
 ;################################################################################
 AppClose() {
@@ -192,18 +192,18 @@ class clsLoupe extends Gui
 	_drawCrossHairs(color, cStart, cEnd) {														; draws cross hairs to loupe canvas
 		global ghMLoupDC
 		RCPxScl := this.RCPxScl
-		hPen	:= DllCall('CreatePen', 'Int',0, 'Int', 1, 'UInt',color, 'Ptr')
-		hOldPen	:= DllCall('SelectObject', 'Ptr', ghMLoupDC, 'Ptr', hPen, 'Ptr')
-		DllCall('MoveToEx', 'Ptr', ghMLoupDC, 'Int', 0, 'Int', cStart, 'Ptr', 0)
-		DllCall('LineTo', 'Ptr', ghMLoupDC, 'Int', RCPxScl, 'Int', cStart)
-		DllCall('MoveToEx', 'Ptr', ghMLoupDC, 'Int', 0, 'Int', cEnd, 'Ptr', 0)
-		DllCall('LineTo', 'Ptr', ghMLoupDC, 'Int', RCPxScl, 'Int', cEnd)
-		DllCall('MoveToEx', 'Ptr', ghMLoupDC, 'Int', cStart, 'Int', 0, 'Ptr', 0)
-		DllCall('LineTo', 'Ptr', ghMLoupDC, 'Int', cStart, 'Int', RCPxScl)
-		DllCall('MoveToEx', 'Ptr', ghMLoupDC, 'Int', cEnd, 'Int', 0, 'Ptr', 0)
-		DllCall('LineTo', 'Ptr', ghMLoupDC, 'Int', cEnd, 'Int', RCPxScl)
-		DllCall('SelectObject', 'Ptr', ghMLoupDC, 'Ptr', hOldPen)
-		DllCall('DeleteObject', 'Ptr', hPen)
+		hPen	:= DllCall('CreatePen', 'Int',0, 'Int', 1, 'UInt',color, 'Ptr'	)
+		hOldPen	:= DllCall('SelectObject',	'Ptr',ghMLoupDC,'Ptr',hPen,  'Ptr'	)
+		DllCall('MoveToEx','Ptr',ghMLoupDC, 'Int',0,		'Int',cStart,'Ptr',0)
+		DllCall('LineTo',  'Ptr',ghMLoupDC, 'Int',RCPxScl,	'Int',cStart		)
+		DllCall('MoveToEx','Ptr',ghMLoupDC, 'Int',0,		'Int',cEnd,  'Ptr',0)
+		DllCall('LineTo',  'Ptr',ghMLoupDC, 'Int',RCPxScl,	'Int',cEnd			)
+		DllCall('MoveToEx','Ptr',ghMLoupDC, 'Int',cStart,	'Int',0,	 'Ptr',0)
+		DllCall('LineTo',  'Ptr',ghMLoupDC, 'Int',cStart,	'Int',RCPxScl		)
+		DllCall('MoveToEx','Ptr',ghMLoupDC, 'Int',cEnd,		'Int',0,	 'Ptr',0)
+		DllCall('LineTo',  'Ptr',ghMLoupDC, 'Int',cEnd,		'Int',RCPxScl		)
+		DllCall('SelectObject', 'Ptr', ghMLoupDC, 'Ptr', hOldPen				)
+		DllCall('DeleteObject', 'Ptr', hPen										)
 	}
 	;############################################################################
 	_extractInfo(info,key) {																	; used to extract particular details from full info
@@ -224,19 +224,19 @@ class clsLoupe extends Gui
 		RCPxScl := this.RCPxScl																	; use local var
 		this.GdiCleanup()																		; cleanup previous allocations first
 		; fresh sizing matrix
-		ghLoupDC := DllCall('GetDC', 'Ptr', ghLoup, 'Ptr')
-		ghMLoupDC:= DllCall('CreateCompatibleDC', 'Ptr', ghLoupDC, 'Ptr')
-		ghMemBM	 := DllCall('CreateCompatibleBitmap', 'Ptr', ghLoupDC
-					, 'Int', RCPxScl, 'Int', RCPxScl, 'Ptr')
+		ghLoupDC := DllCall('GetDC', 'Ptr', ghLoup,	 'Ptr')
+		ghMLoupDC:= DllCall('CreateCompatibleDC',	 'Ptr',ghLoupDC,'Ptr')
+		ghMemBM	 := DllCall('CreateCompatibleBitmap','Ptr',ghLoupDC
+					, 'Int', RCPxScl, 'Int', RCPxScl,'Ptr')
 		ghOldBM	 := DllCall('SelectObject','Ptr',ghMLoupDC, 'Ptr',ghMemBM,'Ptr')
 	}
 	;############################################################################
 	GdiCleanup() {																				; release gdi resources
 		global ghLoupDC, ghMLoupDC, ghMemBM, ghOldBM											; global vars help improve update performance
-		DllCall('SelectObject', 'Ptr', ghMLoupDC, 'Ptr', ghOldBM, 'Ptr')
-		DllCall('DeleteObject', 'Ptr', ghMemBM)
-		DllCall('DeleteDC', 'Ptr', ghMLoupDC)
-		DllCall('ReleaseDC', 'Ptr', ghLoup, 'Ptr', ghLoupDC)
+		DllCall('SelectObject',	'Ptr',	ghMLoupDC,	'Ptr', ghOldBM,'Ptr')
+		DllCall('DeleteObject',	'Ptr',	ghMemBM							)
+		DllCall('DeleteDC',		'Ptr',	ghMLoupDC						)
+		DllCall('ReleaseDC',	'Ptr',	ghLoup,		'Ptr', ghLoupDC		)
 	}
 	;############################################################################
 	_getClrInfo(srcClr) {																		; splits targ color into rgb, calcs best colors for cross-hairs, text, frames
@@ -323,7 +323,7 @@ class clsLoupe extends Gui
 		if (lastX!=mX || lastY!=mY																; if mouse moved...
 		|| lastRCPxCnt!=RCPxCnt																	; ... OR loupe win size changed...
 		|| lastRCSqCnt!=RCSqCnt) {																; ... OR loupe magnification changed...
-			lastX:=mx, lastY:=mY, lastRCPxCnt:=RCPxCnt, lastRCSqCnt:=RCSqCnt					; ...	save values for comparison next visit
+			lastX:=mX, lastY:=mY, lastRCPxCnt:=RCPxCnt, lastRCSqCnt:=RCSqCnt					; ...	save values for comparison next visit
 			return true																			; ...	notify caller that changes occurred
 		}
 		return false																			; otherwise, NO change occurred
@@ -705,6 +705,21 @@ class clsSplash extends Gui
 		this.Add('Text', Format(fmtStr, pad, pad+bxSz*3+30, bxSz*3), vers)
 	}
 	;############################################################################
+	_createGeometricPen(cRGB, thickness:=1, capType:="square") {
+		static PS_GEOMETRIC		:= 0x00010000
+		static PS_SOLID			:= 0x00000000
+		static PS_ENDCAP_SQUARE	:= 0x00000100
+		static PS_ENDCAP_FLAT	:= 0x00000200
+		static BS_SOLID			:= 0
+		penCap	 := (capType = "flat") ? PS_ENDCAP_FLAT : PS_ENDCAP_SQUARE
+		penStyle := PS_GEOMETRIC | PS_SOLID | penCap
+		colorBGR := ((cRGB&0xFF)<<16)|(cRGB&0xFF00)|((cRGB>>16)&0xFF)
+		logBrush := Buffer(12, 0)
+		NumPut("UInt", BS_SOLID,"UInt", colorBGR,"UInt", 0,logBrush, 0)
+		return DllCall("ExtCreatePen", "UInt",penStyle, "UInt",thickness
+						, "Ptr",logBrush, "UInt",0, "Ptr",0, "Ptr")
+	}
+	;############################################################################
 	_drawReticle() {																			; draw cross-hair on splash screen
 		hwnd := this.hwnd
 		hdc := DllCall('GetDC', 'Ptr', hwnd, 'Ptr')
@@ -720,26 +735,29 @@ class clsSplash extends Gui
 		DllCall('BitBlt', 'Ptr', hdcMem, 'Int', 0, 'Int', 0, 'Int', w, 'Int', h
 			, 'Ptr', hdc, 'Int', 0, 'Int', 0, 'UInt', 0x00CC0020)
 		; high-contrast drawing pens for cross-hair
-		hBlackPen := DllCall('CreatePen','Int',0,'Int',4,'UInt',0x000000,'Ptr')
-		hWhitePen := DllCall('CreatePen','Int',0,'Int',2,'UInt',0xFFFFFF,'Ptr')
+		hBlackPen := this._createGeometricPen('0x000000', 4)
+		hWhitePen := this._createGeometricPen('0xFFFFFF', 2)
+		;hBlackPen := DllCall('CreatePen','Int',0,'Int',4,'UInt',0x000000,'Ptr')
+		;hWhitePen := DllCall('CreatePen','Int',0,'Int',2,'UInt',0xFFFFFF,'Ptr')
 		; cross-hair position
 		tX1	 := this._ctrBx.X1, tY1 := this._ctrBx.Y1
 		tX2	 := this._ctrBx.X2, tY2 := this._ctrBx.Y2
 		midX := tX1+((tX2 - tX1) / 2), midY := tY1+((tY2 - tY1) / 2), ext := 12					; cross hair centered on center square
 		midX := scaled(midX), midY := scaled(midY), ext := scaled(ext)							; ensure cross-hair pos is adj for scaling
-		midX *= .88, midY *= .88																; OPTIONAL - include dynamic offset
+		rndX := Random(0.9, 1.1), rndY := Random(0.9, 1.1)										; randomize an offset for cross-hair
+		midX *= rndX, midY *= rndY																; OPTIONAL - include dynamic offset
 		; paint cross-hair over the cube
 		Loop 2 {
 			currentPen := (A_Index == 1) ? hBlackPen : hWhitePen
 			oldObj := DllCall('SelectObject','Ptr',hdcMem,'Ptr',currentPen,'Ptr')
 			DllCall('MoveToEx','Ptr',hdcMem, 'Int',midX-ext,'Int',midY,'Ptr',0)
-			DllCall('LineTo', 'Ptr', hdcMem, 'Int', midX - 2, 'Int', midY)
+			DllCall('LineTo',  'Ptr',hdcMem, 'Int', midX - 2, 'Int', midY)
 			DllCall('MoveToEx','Ptr',hdcMem, 'Int', midX + 2,'Int',midY,'Ptr',0)
-			DllCall('LineTo', 'Ptr', hdcMem, 'Int', midX + ext, 'Int', midY)
+			DllCall('LineTo',  'Ptr',hdcMem, 'Int', midX + ext, 'Int', midY)
 			DllCall('MoveToEx','Ptr',hdcMem, 'Int', midX,'Int',midY-ext,'Ptr',0)
-			DllCall('LineTo', 'Ptr', hdcMem, 'Int', midX,'Int',midY-2)
+			DllCall('LineTo',  'Ptr',hdcMem, 'Int', midX,'Int',midY-2)
 			DllCall('MoveToEx','Ptr',hdcMem, 'Int', midX,'Int',midY+2,'Ptr',0)
-			DllCall('LineTo', 'Ptr', hdcMem, 'Int', midX,'Int',midY+ext)
+			DllCall('LineTo',  'Ptr',hdcMem, 'Int', midX,'Int',midY+ext)
 			DllCall('SelectObject', 'Ptr', hdcMem, 'Ptr', oldObj, 'Ptr')
 		}
 		; blast the combined images to screen in one shot
