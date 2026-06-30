@@ -7,8 +7,8 @@
 */
 #Requires AutoHotkey v2.0
 #SingleInstance Force
-CoordMode('Mouse', 'Screen'), CoordMode('Pixel', 'Screen')
-gAppVers := '26-06-29.124'
+CoordMode('Mouse', 'Screen'), CoordMode('Pixel', 'Screen'), CoordMode('Tooltip', 'Screen')
+gAppVers := '26-06-29.233'
 AppIni()																						; initialize application
 ;################################################################################
 AppClose() {
@@ -18,8 +18,7 @@ AppClose() {
 AppIni() {
 	global
 	gInitialized := 0																			; disable hotkeys
-		getScale()																				; grab dpi scaling from system
-		getVirtualDimensions()																	; grab virtual display dimensions (for multi-display support)
+		getDisplayInfo()																		; get display details
 		cfg := clsSettings()																	; grab setting from ini file
 		guiSplashShow()																			; show animated splash screen
 		DllCall('SetThreadDpiAwarenessContext', 'ptr', -4, 'ptr')								; needs to be before loupe gui ini
@@ -40,7 +39,7 @@ class clsSettings
 	_cache			:= Map()																	; settings Map
 	_toDisk			:= 0																		; flag to signal that changes have not been saved to disk yet
 	_iniFile		:= A_ScriptDir '\HueHacker.ini'												; ini file to write to
-	;_iniFile		:= 'E:' '\HueHacker.ini'			; thumb-drive for testing				; ini file to write to
+	;_iniFile		:= 'D:' '\HueHacker.ini'			; thumb-drive for testing				; ini file to write to
 	;############################################################################
 	__New() {																					; constructor
 		this._getINI()
@@ -252,10 +251,13 @@ class clsLoupe extends Gui
 	}
 	;############################################################################
 	_getHeights() {																				; returns loupe gui cur height and max height allowed
-		padding	:= 10
-		maxH	:= floor((gVD.vH/2)-(gLoup.OffsetY/2)-padding)									; 2026-06-27, use virtual height instead of A_ScreenHeight
-		curH	:= Round(scaled(gLoup.PxH) + gLoup.OffsetY)
-		return	{curH:curH,maxH:maxH}
+		MouseGetPos(&mx,&my)
+		mon		:= clsMonitor.hostDisplay(mx,my), maxY := mon.aB								; get maxY for monitor where mouse is
+		padding	:= 0 ;10																		; just in case
+		;maxH	:= floor((maxY/2)-(gLoup.OffsetY/2)-padding)									; 2026-06-27, use virtual height instead of A_ScreenHeight
+		maxH	:= floor(maxY/2)																; 2026-06-29, use monitor working area
+		curH	:= Round(scaled(gLoup.PxH) + gLoup.OffsetY)										; includes the mouse/win offset as part calculated height !
+		return	{curH:curH,maxH:maxH}															; return height details
 	}
 	;############################################################################
 	_hideGUI() {																				; hide loupe gui, disable updates
@@ -311,7 +313,7 @@ class clsLoupe extends Gui
 	;############################################################################
 	_isSizeOk() {																				; helps prevent rapid flip-flop repositioning of loupe gui
 		h := this._getHeights()
-		return	h.curH < h.maxH
+		return	h.curH <= h.maxH
 	}
 	;############################################################################
 	_needsUpdate() {																			; prevents loupe updates if no change occurred
@@ -329,8 +331,9 @@ class clsLoupe extends Gui
 	;############################################################################
 	Resize(delta) {																				; perform loupe win resize operations
 		h		:= this._getHeights()															; get cur loupe height and max allowed
-		newSz	:= (!this._isSizeOk()) ? this.DefPxCnt											; resize to default value if too-big
-				: ((delta < 1 || h.curH+delta < h.maxH) ? this.RCPxCnt+delta : 0)				; prevent enlargement if at max size
+		newVal	:= Round(scaled(this.PxH + delta) + this.OffsetY)								; new value for height, if allowed
+		newSz	:= (!this._isSizeOk()) ? this.DefPxCnt											; if size already too big, resize to default val
+				: ((delta < 1 || newVal <= h.maxH) ? this.RCPxCnt+delta : 0)					; determine whether new size is ok or not
 		if (newSz < 100)																		; prevent text from clipping at edges of control
 			return
 		this.PxW := this.RCPxCnt := newSz														; set new width for loupe win
@@ -353,6 +356,7 @@ class clsLoupe extends Gui
 			gX := this.winX, gY := this.winY													; ... use static x/y values
 		} else {																				; otherwise...
 			MouseGetPos(&mX,&mY), gX := mX+this.OffsetX, gY := mY+this.OffsetY					; ... set pos near mouse
+			this.winX := gX, this.winY := gY													; update local properties
 		}
 		this.UpdateLoup(1)	; force loupe update while hidden									; softens abrupt painting
 		this.Show(Format('hide x{} y{} w{} h{}', gX, gY, this.PxW, this.PxH))					; hide initially, for better animation effect
@@ -376,7 +380,7 @@ class clsLoupe extends Gui
 		guiForceLoupeUpdate(1)																	; force a loupe image update
 	}
 	;############################################################################
-	; 2026-06-27, UPDATED to support multi-display setups
+	; 2026-06-29, UPDATED to support multi-display setups
 	UpdateLoup(force:=0) {																		; updates loupe using a timer, but can be forced as well
 		global ghLoupDC, ghMLoupDC																; global vars improve performance
 		if (!force && !this._needsUpdate())														; if no changes are detected...
@@ -391,20 +395,26 @@ class clsLoupe extends Gui
 		; also need to make adjustments at screen edges
 		srcX := mX - halfLoup, srcY := mY - halfLoup											; coords that will begin screen capture
 		dstX := 0, dstY := 0, drawW := RCSqCnt, drawH := RCSqCnt
-		if (srcX < gVD.vX) {
-			dstX	:= Round(Abs(srcX - gVD.vX) * pxPerSqr)
-			drawW	-= Abs(srcX - gVD.vX)
-			srcX	:= gVD.vX
+		; get min/max dimensions from monitor where mouse is
+		mon := clsMonitor.hostDisplay(mX,mY)													; get details of display where mouse is
+		minX := mon.bL	; gVD.vX																; get left-edge  of monitor BOUND area
+		maxX := mon.bR	; gVD.vW																; get right-edge of monitor BOUND area
+		minY := mon.bT	; gVD.vY																; get top-edge	 of monitor BOUND area
+		maxY := mon.bB	; gVD.vH																; get bot-edge	 of monitor BOUND area
+		if (srcX < minX) {
+			drawW	:= Abs(srcX	- minX)
+			dstX	:= Round(drawW * pxPerSqr)
+			srcX	:= minX
 		}
-		if (srcY < gVD.vY) {
-			dstY	:= Round(Abs(srcY - gVD.vY) * pxPerSqr)
-			drawH	-= Abs(srcY - gVD.vY)
-			srcY	:= gVD.vY
+		if (srcY < minY) {
+			drawH	:= Abs(srcY - minY)
+			dstY	:= Round(drawH * pxPerSqr)
+			srcY	:= minY
 		}
-		if (srcX + drawW > gVD.vX + gVD.vW)
-			drawW := (gVD.vX + gVD.vW) - srcX
-		if (srcY + drawH > gVD.vY + gVD.vH)
-			drawH := (gVD.vY + gVD.vH) - srcY
+		if (srcX + drawW > maxX)
+			drawW := maxX - srcX
+		if (srcY + drawH > maxY)
+			drawH := maxY - srcY
 		; draw to loupe canvas
 		DllCall('BitBlt', 'Ptr', ghMLoupDC, 'Int', 0, 'Int', 0, 'Int', RCPxScl					; start with black loupe canvas
 			, 'Int', RCPxScl, 'Ptr', 0, 'Int', 0, 'Int', 0, 'UInt', 0x00000042)					; ... needed when capturing screen edges
@@ -431,7 +441,7 @@ class clsLoupe extends Gui
 		this._updateLoupPos()																	; move loupe gui relative to mouse position
 	}
 	;############################################################################
-	; 2026-06-27, UPDATED to support multi-display setups
+	; 2026-06-29, UPDATED to support multi-display setups
 	_updateLoupPos() {																			; reposition loupe gui relative to mouse pos
 		static xDir := 0, yDir := 0
 		if (this.LoupLock)																		; if loupe gui is locked in static pos...
@@ -441,52 +451,63 @@ class clsLoupe extends Gui
 			this.Resize(0)																		; ... resize loupe gui
 		MouseGetPos(&mX, &mY)																	; get current mouse coords
 		WinGetPos(&rX, &rY, &rW, &rH, ghLoup)													; get SCALED loupe gui dimensions
+		; get details of monitor where mouse is
+		mon := clsMonitor.hostDisplay(mX,mY)													; get details of display where mouse is
+		minX := mon.aL	; gVD.vX																; get left-edge  of monitor ACTIVE area
+		maxX := mon.aR	; gVD.vW																; get right-edge of monitor ACTIVE area
+		minY := mon.aT	; gVD.vY																; get top-edge	 of monitor ACTIVE area
+		maxY := mon.aB	; gVD.vH																; get bot-edge	 of monitor ACTIVE area
 		;########################################################################
 		; x-axis
 		if (xDir = 0) {
 			; if moving R and win hits R edge, flip loupe to L of mouse pointer
-			if (mX + offsetX + rW > gVD.vX + gVD.vW) {
-				gX := mX - rW - offsetX, xDir := 1
-			} else {
-				gX := mX + offsetX
+			if (mX + offsetX + rW > maxX) {														; if loupe-win hits right-edge
+				gX := mX - rW - offsetX, xDir := 1												; ... flip loupe-win to left of mouse pointer
+			} else {																			; otherwise...
+				gX := mX + offsetX																; ... keep moving right, no change to mouse/win orientation
 			}
 		} else { ; xDir = 1
 			; only flip back to R side of mouse when loupe reaches L edge
-			if (mX - rW -offsetX < gVD.vX) {
-				gX := mX + offsetX, xDir := 0
-			} else {
-				gX := mX - rW - offsetX
+			if (mX - rW -offsetX < minX) {														; if loupe-win hits left-edge
+				gX := mX + offsetX, xDir := 0													; ... flip loupe-win to right of mouse pointer
+			} else {																			; otherwise...
+				gX := mX - rW - offsetX															; ... keep moving left, no change to mouse/win orientation
 			}
 		}
 		;########################################################################
 		; y-axis
 		if (yDir = 0) {
 			; if moving dn and win hits bot edge, flip loupe above mouse pointer
-			if (mY + offsetY + rH > gVD.vY + gVD.vH) {
-				gY := mY - rH - offsetY, yDir := 1
-			} else {
-				gY := mY + offsetY
+			if (mY + offsetY + rH > maxY) {														; if loupe-win hits bot-edge
+				gY := mY - rH - offsetY, yDir := 1												; ... flip loupe-win above mouse pointer
+			} else {																			; otherwise...
+				gY := mY + offsetY																; ... keep moving down, no change to mouse/win orientation
 			}
 		} else { ; yDir = 1
 			; only flip below mouse pointer when loupe reaches top edge
-			if (mY - rH - offsetY < gVD.vY) {
-				gY := mY + offsetY, yDir := 0
-			} else {
-				gY := mY - rH - offsetY
+			if (mY - rH - offsetY < minY) {														; if loupe-win hits top-edge
+				gY := mY + offsetY, yDir := 0													; ... flip loupe-win below mouse pointer
+			} else {																			; otherwise...
+				gY := mY - rH - offsetY															; ... keep moving up, no change to mouse/win orientation
 			}
 		}
 		;########################################################################
 		; safety overrides to prev loupe clipping under taskbars/edges
-		if (gX < gVD.vX)
-			gX := gVD.vX
-		if (gY < gVD.vY)
-			gY := gVD.vY
-		if (gX + rW > gVD.vX + gVD.vW)
-			gX := (gVD.vX + gVD.vW) - rW
-		if (gY + rH > gVD.vY + gVD.vH)
-			gY := (gVD.vY + gVD.vH) - rH
+		mon := clsMonitor.hostDisplay(gX,gY)													; get updated monitor details for loupe-win new location
+		minX := mon.aL																			; get left-edge  of monitor ACTIVE area
+		maxX := mon.aR																			; get right-edge of monitor ACTIVE area
+		minY := mon.aT																			; get top-edge	 of monitor ACTIVE area
+		maxY := mon.aB																			; get bot-edge	 of monitor ACTIVE area
+		if (gX < minX)																			; if loupe-win left-edge is to left of monitor left-edge...
+			gX := minX																			; ... place loupe-win left-edge at monitor left-edge
+		if (gY < minY)																			; if loupe-win top-edge is above monitor top-edge...
+			gY := minY																			; ... place loupe-win top-edge at monitor top-edge
+		if (gX + rW > maxX)																		; if loupe-win right-edge is past monitor right-edge...
+			gX := maxX - rW																		; ... place loupe-win at monitor right-edge
+		if (gY + rH > maxY)																		; if loupe-win bottom-edge is below monitor bottom-edge...
+			gY := (maxY) - rH																	; ... place loupe-win at monitor bottom-edge
 
-		WinMove(gX,gY,,,ghLoup)
+		WinMove(gX,gY,,,ghLoup)																	; loupe-win final destination
 	}
 	;############################################################################
 	_updateStatus() {																			; update status bar text
@@ -726,7 +747,74 @@ class clsSplash extends Gui
 		this.Destroy()																			; see ya!
 	}
 }
+;################################################################################
+; clsMonitor - gathers info about system monitors
+;################################################################################
+Class clsMonitor
+{
+	Static MonList	:= []
+
+	isPrim	:= 0
+	_name	:= ''
+	Name	=> RegExReplace(this._name, '[\\.]')
+	bL		:= 0																				; left-edge	 of bounding box
+	bR		:= 0																				; right-edge of bounding box
+	bT		:= 0																				; top-edge	 of bounding box
+	bB		:= 0																				; bot-edge	 of bounding box
+	aL		:= 0																				; left-edge	 of working area
+	aR		:= 0																				; right-edge of working area
+	aT		:= 0																				; top-edge	 of working area
+	aB		:= 0																				; bot-edge	 of working area
+	;############################################################################
+	__New(name,bL,bT,bR,bB,aL,aT,aR,aB) {
+		this._name := name
+		this.bL := bL, this.bT := bT, this.bR := bR, this.bB := bB
+		this.aL := aL, this.aT := aT, this.aR := aR, this.aB := aB
+	}
+	;############################################################################
+	Static _boundWithin(obj, x,y) {
+		if (!(obj is clsMonitor)) {
+			return 0
+		}
+		return (x >= obj.bL && x <= obj.bR && y >= obj.bT && y <= obj.bB)
+		;return (x >= obj.aL && x <= obj.aR && y >= obj.aT && y <= obj.aB)
+	}
+	;############################################################################
+	Static GetMonitorFromPoint(x,y) {
+		pt := (x & 0xFFFFFFFF) | (y << 32)
+		return DllCall("MonitorFromPoint", "Int64", pt, "UInt", 0x2, "Ptr")						; return handle of monitor
+	}
+	;############################################################################
+	Static GetMonitorProfiles() {
+		prim := MonitorGetPrimary()
+		loop MonitorGetCount() {
+			curMon	:= MonitorGet(A_Index, &bL, &bT, &bR, &bB)
+			curMon	:= MonitorGetWorkArea(A_Index, &aL, &aT, &aR, &aB)
+			name	:= MonitorGetName(A_Index)
+			monProf := clsMonitor(name,bL,bT,bR,bB,aL,aT,aR,aB)
+			monProf.isPrim := !!(curMon = prim)
+			this.MonList.Push(monProf)
+		}
+	}
+	;############################################################################
+	Static HostDisplay(x,y) {
+		for i, obj in this.monList {
+			if (this._boundWithin(obj,x,y))
+				return obj
+		}
+		msg := '`nUnable to identify Host Display for coords:`n[' x ', ' y ']'
+		throw(A_ThisFunc msg)
+	}
+}
 ;#################################  FUNCTIONS  ##################################
+;################################################################################
+																 getDisplayInfo()				; get details related to display
+;################################################################################
+{
+	getScale()																					; grab dpi scaling from system
+	getVirtualDimensions()																		; grab virtual display dimensions (for multi-display support)
+	clsMonitor.getMonitorProfiles()																; grab profiles for monitors
+}
 ;################################################################################
 																	   getScale()				; compensates for screen scaling
 ;################################################################################
