@@ -1,14 +1,14 @@
 ﻿/*
 	App:	Hue-Hacker Pixel-Peeper
 	Author:	andymbody
-	Date:	2026-06-29
+	Date:	2026-06-30
 	GitHub:	https://github.com/andymbody/Hue-Hacker-Pixel-Peeper
 	Forum:	https://www.autohotkey.com/boards/viewtopic.php?f=83&t=140824
 */
 #Requires AutoHotkey v2.0
 #SingleInstance Force
 CoordMode('Mouse', 'Screen'), CoordMode('Pixel', 'Screen'), CoordMode('Tooltip', 'Screen')
-gAppVers := '26-06-29.233'
+gAppVers := '26-06-30.105'
 AppIni()																						; initialize application
 ;################################################################################
 AppClose() {
@@ -362,7 +362,7 @@ class clsLoupe extends Gui
 		this.Show(Format('hide x{} y{} w{} h{}', gX, gY, this.PxW, this.PxH))					; hide initially, for better animation effect
 		guiWinFade(this, 1, 1000)																; animate entrance
 		this.Show()																				; make it permanent
-		SetTimer(this.LoupUpdateCB, 50)															; enable normal loupe updates
+		SetTimer(this.LoupUpdateCB, 16)															; enable normal loupe updates
 	}
 	;############################################################################
 	ToggleActive() {																			; toggles whether tool is activate or not
@@ -377,14 +377,20 @@ class clsLoupe extends Gui
 			this.SavePos()																		; ... save the cur x/y pos
 		cfg.Save('LoupLock', this.LoupLock)														; save LoupLock state
 		this._updateStatus()																	; update status bar with current lock condition
-		guiForceLoupeUpdate(1)																	; force a loupe image update
+		guiForceLoupeUpdate(500)																; force a loupe image update
 	}
 	;############################################################################
 	; 2026-06-29, UPDATED to support multi-display setups
 	UpdateLoup(force:=0) {																		; updates loupe using a timer, but can be forced as well
 		global ghLoupDC, ghMLoupDC																; global vars improve performance
-		if (!force && !this._needsUpdate())														; if no changes are detected...
+		static sUpdating := 0																	; might help with performance
+		if (sUpdating)																			; if already updating...
+			return																				; ... may help performance
+		if (!force && !this._needsUpdate())	{													; if no changes are detected...
+			sUpdating := 0																		; ... reset
 			return																				; ... no need for update
+		}
+		sUpdating := 1																			; flag as updating
 		RCPxScl := this.RCPxScl, RCSqCnt := this.RCSqCnt										; use local vars
 		MouseGetPos(&mX, &mY)																	; get current mouse position
 		pxPerSqr	:= RCPxScl / RCSqCnt														; [pixels per loupe square]
@@ -439,16 +445,24 @@ class clsLoupe extends Gui
 				,'Int',RCPxScl,'Ptr',ghMLoupDC,'Int',0,'Int',0,'UInt',0x00CC0020)
 		DllCall('ReleaseDC', 'Ptr', 0, 'Ptr', hScrnDC)											; discard screen DC resource
 		this._updateLoupPos()																	; move loupe gui relative to mouse position
+		sUpdating := 0																			; reset
 	}
 	;############################################################################
 	; 2026-06-29, UPDATED to support multi-display setups
 	_updateLoupPos() {																			; reposition loupe gui relative to mouse pos
-		static xDir := 0, yDir := 0
-		if (this.LoupLock)																		; if loupe gui is locked in static pos...
+		static xDir := 0, yDir := 0, sUpdating := 0
+		if (this.LoupLock) {																	; if loupe gui is locked in static pos...
+			sUpdating := 0																		; ... ensure reset
 			return																				; ... do not reposition it
-		offsetX := this.OffsetX, offsetY := this.OffsetY										; use local vars
-		if (!this._isSizeOk())																	; if loupe gui is too big for auto-wrapping...
+		}
+		if (sUpdating)																			; if already updating...
+			return																				; ... may help with performance
+		if (!this._isSizeOk()) {																; if loupe gui is too big for auto-wrapping...
+			sUpdating := 0
 			this.Resize(0)																		; ... resize loupe gui
+		}
+		sUpdating := 1																			; flag as updating
+		offsetX := this.OffsetX, offsetY := this.OffsetY										; use local vars
 		MouseGetPos(&mX, &mY)																	; get current mouse coords
 		WinGetPos(&rX, &rY, &rW, &rH, ghLoup)													; get SCALED loupe gui dimensions
 		; get details of monitor where mouse is
@@ -508,6 +522,7 @@ class clsLoupe extends Gui
 			gY := (maxY) - rH																	; ... place loupe-win at monitor bottom-edge
 
 		WinMove(gX,gY,,,ghLoup)																	; loupe-win final destination
+		sUpdating := 0																			; reset
 	}
 	;############################################################################
 	_updateStatus() {																			; update status bar text
@@ -844,19 +859,27 @@ Class clsMonitor
 	return gVD
 }
 ;################################################################################
-													guiForceLoupeUpdate(reset:=0)				; forces a loupe update for 2 secs
+													  guiForceLoupeUpdate(dur:=0)				; forces a loupe update for specified duration
 ;################################################################################
 {
-	static c := 0, maxC := 40	; 50 X 40 := 2 secs
-	start := 0
-	if (reset)
-		start := (c=0), c := 0																	; determine whether timer needs started
-	if (!gLoup.IsActive || ++c > maxC) {														; if loupe gui is not visible, or max was exceeded...
-		setTimer(%A_ThisFunc%, 0), c := 0														; ... disable timer
-		return																					; ... then exit
+	static start := 0, maxDur := 1000
+	if (!gLoup.IsActive) {																		; if loupe tool in NOT active...
+		setTimer(%A_ThisFunc%, 0), start := 0													; ... disable timer
+		return
+	}
+	if (dur) {																					; if new duration request...
+		setTimer(%A_ThisFunc%, 0)																; ... reset, just in case
+		maxDur := dur, start := A_TickCount														; set new max dur and start time
+		setTimer(%A_ThisFunc%, 20)																; start the timer for this callback
+		return
+	}
+	; timer is running... check to see if max time is exceeded
+	elapsed := A_TickCount - start																; get elapsed time since timer started
+	if (elapsed >= maxDur) {																	; if elapsed has exceeded max time...
+		setTimer(%A_ThisFunc%, 0), start := 0													; ... disable timer
+		return
 	}
 	gLoup.UpdateLoup(1)																			; force an update to loupe gui
-	(start) && (setTimer(%A_ThisFunc%, 50))														; start timer for more visits, if needed
 }
 ;################################################################################
 																  guiHKListHide()
@@ -935,7 +958,7 @@ Class clsMonitor
 	getScale()																					; get new scale
 	getVirtualDimensions()																		; get full virtual display dimensions
 	gLoup.Resize(0)																				; resize loupe gui as needed
-	guiForceLoupeUpdate(1)																		; force loupe update
+	guiForceLoupeUpdate(1000)																	; force loupe update
 }
 ;################################################################################
 										WM_LBUTTONDOWN(wParam, lParam, msg, hwnd)				; allows user to move HKList or loupe guis if desired
@@ -960,7 +983,7 @@ Class clsMonitor
 		return
 	; 4 = HSHELL_WINDOWACTIVATED, 32772 = HSHELL_RUDELEVELTOPACTIVATED
 	if (wParam = 4 || wParam = 32772) {															; if active window changed...
-		guiForceLoupeUpdate(1)																	; ... force an update to loupe gui
+		guiForceLoupeUpdate(1500)																; ... force an update to loupe gui
 	}
 }
 ;#################################  SHORTCUTS  ##################################
@@ -979,7 +1002,7 @@ Class clsMonitor
 ~WheelUp::
 ~WheelDown::
 ~LButton::
-~RButton::			guiForceLoupeUpdate(1)														; forces update for mouse clicks/scrolling
+~RButton::			guiForceLoupeUpdate(1000)													; forces update for mouse clicks/scrolling
 ~Up::				MouseMove(0, -1,  0, 'R')
 ~Down::				MouseMove(0,  1,  0, 'R')
 ~Left::				MouseMove(-1, 0,  0, 'R')
